@@ -1,3 +1,5 @@
+use crate::emtypes::Num;
+
 /*
 TOP => (DEF)* | EXP
 DEF => DEFNODE | DEFDATA | DEFFUNC
@@ -67,4 +69,3 @@ pub struct Id {
     // tokens of program is stored in qstr pool and pos points to its index
     pub pos: usize,
 }
-type Num = i32;
