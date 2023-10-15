@@ -1,1 +1,1 @@
-
+pub type QstrIndex = usize;

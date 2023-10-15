@@ -1,4 +1,4 @@
-use crate::emtypes::Num;
+use crate::{emtypes::Num, qstr::QstrIndex};
 
 /*
 TOP => (DEF)* | EXP
@@ -67,5 +67,5 @@ pub enum Term {
 pub struct Id {
     // pointer to unique string(qstr)
     // tokens of program is stored in qstr pool and pos points to its index
-    pub pos: usize,
+    pub pos: QstrIndex,
 }
