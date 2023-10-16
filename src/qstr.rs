@@ -21,7 +21,7 @@ impl QstrPool {
     fn _get(&self, n: usize) -> Option<&str> {
         self.qstrs.get(n).map(|x| x.as_str())
     }
-    pub fn get(&self, n: usize) -> Option<&str> {
+    pub fn get(&self, QstrIndex(n): QstrIndex) -> Option<&str> {
         let mut pool = self;
         while n < pool.total_prev_len {
             pool = pool.parent.as_ref().unwrap()
@@ -40,23 +40,25 @@ impl QstrPool {
             None
         }
     }
-    pub fn insert(mut self, s: &str) -> Self {
-        match self.find(s) {
-            Some(_) => self,
+    pub fn insert(mut self, s: String) -> (Self, QstrIndex) {
+        match self.find(&s) {
+            Some(ind) => (self, ind),
             None => {
                 let current = self.qstrs.capacity();
                 if current == self.qstrs.len() {
                     let total_prev_len = current + self.total_prev_len;
                     let mut qstrs = Vec::with_capacity(current * 2);
                     qstrs.push(s.to_string());
-                    Self {
+                    let new = Self {
                         parent: Some(Box::new(self)),
                         qstrs,
                         total_prev_len,
-                    }
+                    };
+                    (new, QstrIndex(total_prev_len))
                 } else {
-                    self.qstrs.push(s.to_string());
-                    self
+                    self.qstrs.push(s);
+                    let n = self.qstrs.len();
+                    (self, QstrIndex(n))
                 }
             }
         }
@@ -67,11 +69,11 @@ impl QstrPool {
 fn qstrpool_test() {
     let mut pool = QstrPool::empty();
     for s in ["a", "b", "c", "d", "a", "c", "e", "f", "a"] {
-        pool = pool.insert(s)
+        (pool, _) = pool.insert(s.to_string())
     }
     for (i, s) in ["a", "b", "c", "d", "e", "f"].iter().enumerate() {
         println!("{}", s);
         assert_eq!(Some(QstrIndex(i)), pool.find(s));
-        assert_eq!(Some(*s), pool.get(i));
+        assert_eq!(Some(*s), pool.get(QstrIndex(i)));
     }
 }

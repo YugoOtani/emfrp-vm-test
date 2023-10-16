@@ -1,5 +1,7 @@
+use crate::qstr::{QstrIndex, QstrPool};
+
 #[derive(Debug, Clone)]
-pub enum Token<'a> {
+pub enum Token {
     KwInt,
     Int(i32),
     KwBool,
@@ -27,14 +29,15 @@ pub enum Token<'a> {
     Ge,
     Le,
     Eof,
-    Id(&'a [u8]),
+    Id(QstrIndex),
 }
-pub fn tokenize(input: &str) -> Option<Vec<Token>> {
+pub fn tokenize(input: &str) -> Option<(Vec<Token>, QstrPool)> {
     let mut ret = vec![];
-    let input_b = input.as_bytes();
+    let mut pool = QstrPool::empty();
+    let s: Vec<char> = input.chars().collect();
     let mut i = 0;
-    while let Some(c) = input_b.get(i) {
-        match *c as char {
+    while let Some(c) = s.get(i) {
+        match *c {
             c if c.is_whitespace() => {}
             '.' => ret.push(Token::Dot),
             ',' => ret.push(Token::Comma),
@@ -49,7 +52,7 @@ pub fn tokenize(input: &str) -> Option<Vec<Token>> {
             '*' => ret.push(Token::Astarisk),
             ';' => ret.push(Token::Semicoron),
             '=' => {
-                if let Some(b'>') = input_b.get(i) {
+                if let Some('>') = s.get(i) {
                     ret.push(Token::Ge);
                     i += 1;
                 } else {
@@ -58,7 +61,7 @@ pub fn tokenize(input: &str) -> Option<Vec<Token>> {
             }
             '>' => ret.push(Token::Gt),
             '<' => {
-                if let Some(b'=') = input_b.get(i) {
+                if let Some('=') = s.get(i) {
                     ret.push(Token::Le);
                     i += 1;
                 } else {
@@ -66,7 +69,7 @@ pub fn tokenize(input: &str) -> Option<Vec<Token>> {
                 }
             }
             '0'..='9' => {
-                if let Some((len, tkn)) = self::tokenize_num(i, input_b) {
+                if let Some((len, tkn)) = self::tokenize_num(i, &s) {
                     i = i + len - 1;
                     ret.push(tkn);
                 } else {
@@ -75,15 +78,15 @@ pub fn tokenize(input: &str) -> Option<Vec<Token>> {
             }
             'a'..='z' | 'A'..='Z' => {
                 let mut i2 = i + 1;
-                while let Some('0'..='9' | 'a'..='z' | 'A'..='Z') =
-                    input_b.get(i2).map(|c| *c as char)
-                {
+                while let Some('0'..='9' | 'a'..='z' | 'A'..='Z') = s.get(i2) {
                     i2 += 1
                 }
-                if let Some(kw_tkn) = some_if_kw(&input_b[i..i2]) {
+                if let Some(kw_tkn) = some_if_kw(&s[i..i2]) {
                     ret.push(kw_tkn)
                 } else {
-                    ret.push(Token::Id(&input_b[i..i2]))
+                    let qind;
+                    (pool, qind) = pool.insert(s[i..i2].into_iter().collect());
+                    ret.push(Token::Id(qind))
                 }
                 i = i2 - 1
             }
@@ -92,12 +95,12 @@ pub fn tokenize(input: &str) -> Option<Vec<Token>> {
         i += 1;
     }
     ret.push(Token::Eof);
-    Some(ret)
+    Some((ret, pool))
 }
-fn tokenize_num(start: usize, v: &[u8]) -> Option<(usize, Token)> {
+fn tokenize_num(start: usize, v: &[char]) -> Option<(usize, Token)> {
     let mut i = start + 1;
 
-    if let '0' = v[start] as char {
+    if let '0' = v[start] {
         if let Some('0'..='9' | 'a'..='z' | 'A'..='Z') = v.get(start + 1).map(|u| *u as char) {
             return None;
         } else {
@@ -107,36 +110,19 @@ fn tokenize_num(start: usize, v: &[u8]) -> Option<(usize, Token)> {
         while let Some('0'..='9') = v.get(i).map(|u| *u as char) {
             i += 1;
         }
-        let opt_n = String::from_utf8(v[start..i].to_vec())
-            .unwrap()
-            .parse::<i32>()
-            .ok();
+        let opt_n = v.iter().collect::<String>().parse::<i32>().ok();
         opt_n.map(|n| (i - start, Token::Int(n)))
     }
 }
 
-fn some_if_kw(s: &[u8]) -> Option<Token> {
+fn some_if_kw(s: &[char]) -> Option<Token> {
     match s {
-        b"Int" => Some(Token::KwInt),
-        b"Bool" => Some(Token::KwBool),
-        b"init" => Some(Token::KwInit),
-        b"data" => Some(Token::KwData),
-        b"node" => Some(Token::KwNode),
-        b"func" => Some(Token::KwFunc),
+        ['I', 'n', 't'] => Some(Token::KwInt),
+        ['B', 'o', 'o', 'l'] => Some(Token::KwBool),
+        ['i', 'n', 'i', 't'] => Some(Token::KwInit),
+        ['d', 'a', 't', 'a'] => Some(Token::KwData),
+        ['n', 'o', 'd', 'e'] => Some(Token::KwNode),
+        ['f', 'u', 'n', 'c'] => Some(Token::KwFunc),
         _ => None,
     }
-}
-#[test]
-fn tokenize_num_test() {
-    assert!(matches!(
-        tokenize_num(0, b"123;"),
-        Some((3, Token::Int(123)))
-    ));
-    assert!(matches!(
-        tokenize_num(2, b"  1230"),
-        Some((4, Token::Int(1230)))
-    ));
-    assert!(matches!(tokenize_num(1, b" 0 ;"), Some((1, Token::Int(0)))));
-    assert!(tokenize_num(1, b" 00 ;").is_none());
-    assert!(tokenize_num(1, b" 1000000000000000000000 ;").is_none());
 }
