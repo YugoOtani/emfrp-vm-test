@@ -1,4 +1,4 @@
-use crate::{emtypes::Num, qstr::QstrIndex};
+use crate::qstr::QstrIndex;
 
 /*
 TOP => (DEF)* | EXP
@@ -58,7 +58,7 @@ pub enum Exp {
 }
 #[derive(Debug, Clone)]
 pub enum Term {
-    Num(Num),
+    Int(i32),
     Bool(bool),
     Id(Id),
 }
