@@ -21,7 +21,7 @@ pub enum Token {
     LBracket,
     Plus,
     Minus,
-    Astarisk,
+    Asterisk,
     Semicoron,
     Eq,
     Gt,
@@ -49,7 +49,7 @@ pub fn tokenize(input: &str) -> Option<(Vec<Token>, QstrPool)> {
             ']' => ret.push(Token::LBracket),
             '+' => ret.push(Token::Plus),
             '-' => ret.push(Token::Minus),
-            '*' => ret.push(Token::Astarisk),
+            '*' => ret.push(Token::Asterisk),
             ';' => ret.push(Token::Semicoron),
             '=' => {
                 if let Some('>') = s.get(i) {
