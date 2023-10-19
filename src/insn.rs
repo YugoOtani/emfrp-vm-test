@@ -1,8 +1,9 @@
 pub enum Insn {
     Add,
-    Je(usize),
-    J(usize),
+    Je(isize),
+    J(isize),
     Mul,
     Int(i32),
     Bool(bool),
+    Exit,
 }

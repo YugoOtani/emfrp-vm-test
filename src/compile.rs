@@ -8,18 +8,17 @@ struct Compiler {
     codes: Vec<Insn>,
     qstr_pool: QstrPool,
 }
-enum CompileErr {
+#[derive(Debug)]
+pub enum CompileErr {
     IdNotFound,
 }
 type CResult = Result<(), CompileErr>;
 
-pub fn compile(top: &Top) -> Result<Vec<Insn>, String> {
+pub fn compile(top: &Top) -> Result<Vec<Insn>, CompileErr> {
     let mut c = Compiler::new();
     match c.top(top) {
         Ok(()) => Ok(c.codes),
-        Err(errkind) => match errkind {
-            CompileErr::IdNotFound => Err("id not found".to_string()),
-        },
+        Err(errkind) => Err(errkind),
     }
 }
 
