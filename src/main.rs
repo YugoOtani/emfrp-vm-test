@@ -2,6 +2,7 @@ pub mod ast;
 pub mod compile;
 pub mod emtypes;
 pub mod exec;
+pub mod insn;
 pub mod machine;
 pub mod qstr;
 use lalrpop_util::lalrpop_mod;

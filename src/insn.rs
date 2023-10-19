@@ -1,0 +1,3 @@
+pub enum Insn {
+    Add,
+}
