@@ -1,5 +1,3 @@
-use crate::qstr::QstrIndex;
-
 /*
 TOP => (DEF)* | EXP
 DEF => DEFNODE | DEFDATA | DEFFUNC
@@ -7,65 +5,64 @@ DEFNODE => node init[EXP] ID = EXP
 DEFDATA => data ID = EXP
 DEFFUNC => func ID (PARAMS) = EXP
 PARAMS = option(ID [, ID]* )
-EXP = if EXP then EXP else EXP | EXP + EXP | EXP * EXP | -EXP | FNCALL | TERM
-TERM = INTEGER | BOOLEAN | ID
+EXP = if EXP then EXP else EXP  | EXP + TERM | FNCALL | TERM
+TERM = TERM * TERM | INTEGER | BOOLEAN | ID
 FNCALL = ID(ARGS)
 ARGS =  option(EXP [, EXP]*)
 ID = [a-zA-Z][a-zA-Z0-9]*
  */
 #[derive(Debug, Clone)]
-pub enum Top {
-    Defs(Vec<Def>),
-    Exp(Exp),
+pub enum Top<'a> {
+    Defs(Vec<Def<'a>>),
+    Exp(Exp<'a>),
 }
 #[derive(Debug, Clone)]
-pub enum Def {
-    Node(DefNode),
-    Data(DefData),
-    Func(DefFunc),
-}
-
-#[derive(Debug, Clone)]
-pub struct DefNode {
-    pub name: Id,
-    pub init: Exp,
-    pub val: Exp,
-}
-#[derive(Debug, Clone)]
-pub struct DefData {
-    pub name: Id,
-    pub val: Exp,
+pub enum Def<'a> {
+    Node(DefNode<'a>),
+    Data(DefData<'a>),
+    Func(DefFunc<'a>),
 }
 
 #[derive(Debug, Clone)]
-pub struct DefFunc {
-    pub name: Id,
-    pub params: Vec<Id>,
-    pub body: Exp,
+pub struct DefNode<'a> {
+    pub name: Id<'a>,
+    pub init: Exp<'a>,
+    pub val: Exp<'a>,
 }
 #[derive(Debug, Clone)]
-pub enum Exp {
+pub struct DefData<'a> {
+    pub name: Id<'a>,
+    pub val: Exp<'a>,
+}
+
+#[derive(Debug, Clone)]
+pub struct DefFunc<'a> {
+    pub name: Id<'a>,
+    pub params: Vec<Id<'a>>,
+    pub body: Exp<'a>,
+}
+#[derive(Debug, Clone)]
+pub enum Exp<'a> {
     If {
-        cond: Box<Exp>,
-        then: Box<Exp>,
-        els: Box<Exp>,
+        cond: Box<Exp<'a>>,
+        then: Box<Exp<'a>>,
+        els: Box<Exp<'a>>,
     },
-    Add(Box<Exp>, Box<Exp>),
-    Mul(Box<Exp>, Box<Exp>),
-    Minus(Box<Exp>),
-    FnCall(Id, Vec<Exp>),
-    Term(Term),
+    Add(Box<Exp<'a>>, Box<Term<'a>>),
+    FnCall(Id<'a>, Vec<Exp<'a>>),
+    Term(Box<Term<'a>>),
 }
 #[derive(Debug, Clone)]
-pub enum Term {
+pub enum Term<'a> {
+    Mul(Box<Term<'a>>, Box<Term<'a>>),
     Int(i32),
     Bool(bool),
-    Id(Id),
+    Id(Id<'a>),
 }
 
 #[derive(Debug, Clone)]
-pub struct Id {
+pub struct Id<'a> {
     // pointer to unique string(qstr)
     // tokens of program is stored in qstr pool and pos points to its index
-    pub pos: QstrIndex,
+    pub s: &'a str,
 }

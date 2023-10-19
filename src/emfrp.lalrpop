@@ -1,0 +1,52 @@
+use std::str::FromStr;
+use crate::ast::*;
+//use lalrpop_util::ParseError;
+
+grammar;
+
+pub Top : Top<'input> = {
+    <e:Exp> => Top::Exp(e),
+    <defs:(Def)*> => Top::Defs(defs)
+}
+Def : Def<'input> = {
+    "node" "init" "[" <init:Exp> "]" <name:Id> "=" <val:Exp>  => Def::Node(DefNode{name,init,val}),
+    "data" <name:Id> "=" <val:Exp> => Def::Data(DefData{name,val}),
+    "func" <name:Id> "(" <params:Comma<Id>> ")" "=" <body:Exp> => Def::Func(DefFunc{name,params,body})
+}
+
+
+Exp: Exp<'input> = {
+    "if"  <cond:Exp>  "{" <then:Exp> "}" "else" "{" <els:Exp> "}" 
+        => Exp::If{
+            cond:Box::new(cond),
+            then:Box::new(then),
+            els:Box::new(els)},
+    <e:Exp> "+" <t:Term> => Exp::Add(Box::new(e),Box::new(t)),
+    <name:Id> "(" <args:Comma<Exp>> ")" => Exp::FnCall(name,args),
+    "(" <e:Exp> ")" => e,
+    <t:Term> => Exp::Term(Box::new(t))
+};
+
+Term : Term<'input> = {
+    <t1:Term> "*" <t2:MonoTerm> => Term::Mul(Box::new(t1),Box::new(t2)),
+    <t:MonoTerm> => t
+}
+MonoTerm : Term<'input> = {
+    "true" => Term::Bool(true),
+    "false" => Term::Bool(false),
+    "0" => Term::Int(0),
+    <i:r"[1-9][0-9]*"> => Term::Int(i32::from_str(i).unwrap()),
+    <id:Id> => Term::Id(id)
+}
+Id : Id<'input> = {
+    <s:r"[a-z][a-z1-9]*"> => Id{s}
+}
+Comma<T>: Vec<T> = { 
+    <mut v:(<T> ",")*> <e:T?> => match e {
+        None => v,
+        Some(e) => {
+            v.push(e);
+            v
+        }
+    }
+};
