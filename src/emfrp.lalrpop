@@ -22,7 +22,7 @@ Exp: Exp<'input> = {
             then:Box::new(then),
             els:Box::new(els)},
     <e:Exp> "+" <t:Term> => Exp::Add(Box::new(e),Box::new(t)),
-    <name:Id> "(" <args:Comma<Exp>> ")" => Exp::FnCall(name,args),
+    
     "(" <e:Exp> ")" => e,
     <t:Term> => Exp::Term(Box::new(t))
 };
@@ -32,6 +32,7 @@ Term : Term<'input> = {
     <t:MonoTerm> => t
 }
 MonoTerm : Term<'input> = {
+    <name:Id> "(" <args:Comma<Exp>> ")" => Term::FnCall(Box::new(name),args),
     "true" => Term::Bool(true),
     "false" => Term::Bool(false),
     "0" => Term::Int(0),
