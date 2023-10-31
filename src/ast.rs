@@ -12,35 +12,33 @@ ARGS =  (EXP [, EXP]*)?
 ID = [a-zA-Z][a-zA-Z0-9]*
  */
 #[derive(Debug, Clone)]
-pub enum Top<'a> {
-    Defs(Vec<Def<'a>>),
+pub enum Program<'a> {
+    File(Vec<Def<'a>>),
+    Repl(Repl<'a>),
+}
+#[derive(Debug, Clone)]
+pub enum Repl<'a> {
     Exp(Exp<'a>),
+    Def(Def<'a>),
 }
 #[derive(Debug, Clone)]
 pub enum Def<'a> {
-    Node(DefNode<'a>),
-    Data(DefData<'a>),
-    Func(DefFunc<'a>),
+    Node {
+        name: Id<'a>,
+        init: Exp<'a>,
+        val: Exp<'a>,
+    },
+    Data {
+        name: Id<'a>,
+        val: Exp<'a>,
+    },
+    Func {
+        name: Id<'a>,
+        params: Vec<Id<'a>>,
+        body: Exp<'a>,
+    },
 }
 
-#[derive(Debug, Clone)]
-pub struct DefNode<'a> {
-    pub name: Id<'a>,
-    pub init: Exp<'a>,
-    pub val: Exp<'a>,
-}
-#[derive(Debug, Clone)]
-pub struct DefData<'a> {
-    pub name: Id<'a>,
-    pub val: Exp<'a>,
-}
-
-#[derive(Debug, Clone)]
-pub struct DefFunc<'a> {
-    pub name: Id<'a>,
-    pub params: Vec<Id<'a>>,
-    pub body: Exp<'a>,
-}
 #[derive(Debug, Clone)]
 pub enum Exp<'a> {
     If {
@@ -57,12 +55,11 @@ pub enum Term<'a> {
     Int(i32),
     FnCall(Box<Id<'a>>, Vec<Exp<'a>>),
     Bool(bool),
+    Last(Id<'a>),
     Id(Id<'a>),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Id<'a> {
-    // pointer to unique string(qstr)
-    // tokens of program is stored in qstr pool and pos points to its index
     pub s: &'a str,
 }

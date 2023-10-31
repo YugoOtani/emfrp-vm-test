@@ -1,6 +1,8 @@
 use crate::insn::*;
+use std::{thread, time};
 
-// TODO:stack size
+// TODO: stack size
+// TODO: Value of Stack
 #[derive(Debug, Clone)]
 pub enum Value {
     Int(i32),
@@ -11,10 +13,9 @@ pub enum RuntimeErr {
     ValueLeft,
 }
 
-pub fn exec(mut insns: Vec<Insn>) -> Result<Value, RuntimeErr> {
+pub fn exec(insns: Vec<Insn>) -> Result<Value, RuntimeErr> {
     let mut rip = (&insns[0]) as *const Insn;
     let mut stack = vec![];
-    insns.push(Insn::Exit);
     unsafe {
         loop {
             match rip.as_ref().unwrap() {
@@ -29,12 +30,12 @@ pub fn exec(mut insns: Vec<Insn>) -> Result<Value, RuntimeErr> {
                 Insn::Je(offset) => match stack.pop().unwrap() {
                     Value::Bool(b) => {
                         if b {
-                            rip = rip.offset(*offset);
+                            rip = rip.offset(*offset - 1);
                         }
                     }
                     _ => panic!(),
                 },
-                Insn::J(offset) => rip = rip.offset(*offset),
+                Insn::J(offset) => rip = rip.offset(*offset - 1),
                 Insn::Mul => {
                     let v1 = stack.pop().unwrap();
                     let v2 = stack.pop().unwrap();
@@ -53,7 +54,17 @@ pub fn exec(mut insns: Vec<Insn>) -> Result<Value, RuntimeErr> {
                         return Err(RuntimeErr::ValueLeft);
                     }
                 }
+                Insn::GetLocal(offset) => {
+                    let v = stack[*offset].clone();
+                    stack.push(v)
+                }
+                Insn::SetLocal(offset) => {
+                    let v = stack.pop().unwrap();
+                    stack[*offset] = v;
+                }
             }
+            println!("{:?}", stack);
+            thread::sleep(time::Duration::from_millis(100));
             rip = rip.offset(1)
         }
     }

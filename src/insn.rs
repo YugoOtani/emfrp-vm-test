@@ -1,3 +1,4 @@
+#[derive(Debug)]
 pub enum Insn {
     Add,
     Je(isize),
@@ -5,5 +6,7 @@ pub enum Insn {
     Mul,
     Int(i32),
     Bool(bool),
+    GetLocal(usize),
+    SetLocal(usize),
     Exit,
 }
