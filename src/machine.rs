@@ -1,8 +1,5 @@
 use std::{
-    sync::{
-        mpsc::{self, Receiver, Sender},
-        Mutex,
-    },
+    sync::mpsc::{self, *},
     thread::{self, JoinHandle},
 };
 
@@ -25,10 +22,11 @@ pub fn run(out: Sender<String>) -> (JoinHandle<()>, Sender<ChangeCode>) {
     (
         thread::spawn(move || loop {
             match rx.recv() {
-                Ok(ChangeCode { code, node: _ }) => /*match exec(code) {
+                Ok(ChangeCode { code, node }) => /*match exec(code) {
                     Ok(v) => println!("Ok : {:?}", v),
                     Err(msg) => println!("{:?}", msg),
-                }*/out.send(format!("{:?}",code)),
+                }*/
+                out.send(format!("{:?} {:?} ",node,code)).unwrap(),
                 Err(_) => return, // sender is dropped?
             };
         }),

@@ -62,7 +62,7 @@ pub fn exec(insns: Vec<Insn2>) -> Result<Value, RuntimeErr> {
                     let v = stack.pop().unwrap();
                     stack[*offset] = v;
                 }
-                Insn2::GetNode(i) => todo!(),
+                Insn2::GetNode(_) => todo!(),
                 Insn2::SetNode(_) => todo!(),
             }
             println!("{:?}", stack);

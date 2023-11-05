@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 
 use crate::dependency::topological_sort;
 use crate::insn::*;
@@ -69,9 +69,9 @@ impl Compiler {
         }
         Ok(self.insn_popall())
     }
-    fn add_sym(&mut self, id: Id) {
+    /*fn add_sym(&mut self, id: Id) {
         self.symbol_table.push(id)
-    }
+    }*/
     fn add_node(&mut self, def: &Def) {
         match def {
             Def::Node { name, init: _, val } => {
@@ -139,7 +139,7 @@ impl Compiler {
 impl Exp {
     pub fn emit_code(&self, c: &mut Compiler) -> EmitResult {
         match self {
-            Exp::If { cond, then, els } => todo!(),
+            Exp::If { .. } => todo!(),
             Exp::Add(e, t) => {
                 e.emit_code(c)?;
                 t.emit_code(c)?;
@@ -161,7 +161,7 @@ impl Term {
             Term::Int(i) => c.push_insn(Insn1::Int(*i)),
             Term::FnCall(_, _) => todo!(),
             Term::Bool(b) => c.push_insn(Insn1::Bool(*b)),
-            Term::Last(id) => todo!(),
+            Term::Last(_) => todo!(),
             Term::Id(id) => c.push_insn(c.find_sym(id)),
         }
         Ok(())

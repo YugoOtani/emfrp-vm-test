@@ -30,7 +30,6 @@ pub enum Insn1 {
     Exit,
 }
 pub fn to_insn2(insns: Vec<Insn1>, sorted_nds: &Vec<Id>) -> Vec<Insn2> {
-    let n = sorted_nds.len();
     insns
         .into_iter()
         .map(|insn| match insn {

@@ -12,7 +12,6 @@ use insn::*;
 use lalrpop_util::lalrpop_mod;
 use machine::*;
 
-use std::fs::File;
 use std::io::{prelude::*, stdin, stdout};
 
 use crate::ast::*;
@@ -31,6 +30,8 @@ use std::sync::mpsc;
 // compile.rs l52
 // init[val] におけるvalにnodeがないか検査
 // @lastのemit_code
+// machineで、runの各ループごとにexecを呼んでおり、そこで新しいスタックを用意しているのでそれを改善する
+// 新しいinsn2を送ったあと、それまでのnodeの値との整合性をどうするか
 
 lalrpop_mod!(pub emfrp);
 const CONSOLE: &str = " > ";
