@@ -13,13 +13,13 @@ pub enum RuntimeErr {
     ValueLeft,
 }
 
-pub fn exec(insns: Vec<Insn>) -> Result<Value, RuntimeErr> {
-    let mut rip = (&insns[0]) as *const Insn;
+pub fn exec(insns: Vec<Insn2>) -> Result<Value, RuntimeErr> {
+    let mut rip = (&insns[0]) as *const Insn2;
     let mut stack = vec![];
     unsafe {
         loop {
             match rip.as_ref().unwrap() {
-                Insn::Add => {
+                Insn2::Add => {
                     let v1 = stack.pop().unwrap();
                     let v2 = stack.pop().unwrap();
                     match (v1, v2) {
@@ -27,7 +27,7 @@ pub fn exec(insns: Vec<Insn>) -> Result<Value, RuntimeErr> {
                         _ => panic!(),
                     }
                 }
-                Insn::Je(offset) => match stack.pop().unwrap() {
+                Insn2::Je(offset) => match stack.pop().unwrap() {
                     Value::Bool(b) => {
                         if b {
                             rip = rip.offset(*offset - 1);
@@ -35,8 +35,8 @@ pub fn exec(insns: Vec<Insn>) -> Result<Value, RuntimeErr> {
                     }
                     _ => panic!(),
                 },
-                Insn::J(offset) => rip = rip.offset(*offset - 1),
-                Insn::Mul => {
+                Insn2::J(offset) => rip = rip.offset(*offset - 1),
+                Insn2::Mul => {
                     let v1 = stack.pop().unwrap();
                     let v2 = stack.pop().unwrap();
                     match (v1, v2) {
@@ -44,9 +44,9 @@ pub fn exec(insns: Vec<Insn>) -> Result<Value, RuntimeErr> {
                         _ => panic!(),
                     }
                 }
-                Insn::Int(i) => stack.push(Value::Int(*i)),
-                Insn::Bool(b) => stack.push(Value::Bool(*b)),
-                Insn::Exit => {
+                Insn2::Int(i) => stack.push(Value::Int(*i)),
+                Insn2::Bool(b) => stack.push(Value::Bool(*b)),
+                Insn2::Exit => {
                     let v = stack.pop().unwrap();
                     if stack.is_empty() {
                         return Ok(v);
@@ -54,14 +54,16 @@ pub fn exec(insns: Vec<Insn>) -> Result<Value, RuntimeErr> {
                         return Err(RuntimeErr::ValueLeft);
                     }
                 }
-                Insn::GetLocal(offset) => {
+                Insn2::GetLocal(offset) => {
                     let v = stack[*offset].clone();
                     stack.push(v)
                 }
-                Insn::SetLocal(offset) => {
+                Insn2::SetLocal(offset) => {
                     let v = stack.pop().unwrap();
                     stack[*offset] = v;
                 }
+                Insn2::GetNode(i) => todo!(),
+                Insn2::SetNode(_) => todo!(),
             }
             println!("{:?}", stack);
             thread::sleep(time::Duration::from_millis(100));

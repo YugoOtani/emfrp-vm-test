@@ -1,7 +1,8 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
-use crate::ast::*;
-use crate::insn::Insn;
+use crate::dependency::topological_sort;
+use crate::insn::*;
+use crate::{ast::*, DEBUG};
 
 //TODOS
 // how to handle error
@@ -9,176 +10,160 @@ use crate::insn::Insn;
 // initail value of node
 //  when to add variable name (in def) to symbol_table
 // name duplication?
-struct Compiler<'a> {
-    codes: Vec<Insn>,
-    symbol_table: HashMap<Id<'a>, usize>,
+pub struct Compiler {
+    codes: Vec<Insn1>,
+    nodes: HashSet<Id>,
+    symbol_table: Vec<Id>,
+    pointed: HashMap<Id, HashSet<Id>>,
+    sorted_nodes: Vec<Id>,
+    upd_formula: HashMap<Id, Exp>,
 }
 #[derive(Debug)]
 pub enum CompileErr {
     IdNotFound(String),
 }
-type CResult = Result<(), CompileErr>;
+pub type CResult = Result<Vec<Insn1>, CompileErr>;
+type EmitResult = Result<(), CompileErr>;
 
-pub fn compile(prog: &Program) -> Result<Vec<Insn>, CompileErr> {
-    let mut c = Compiler::new();
-    match c.compile_prog(prog) {
-        Ok(()) => Ok(c.codes),
-        Err(errkind) => Err(errkind),
-    }
-}
+impl Compiler {
+    pub fn compile(&mut self, prog: &Program) -> CResult {
+        assert!(self.codes.len() == 0);
+        match prog {
+            Program::Def(def) => {
+                self.add_node(def);
+                self.add_dependency(def);
+            }
+            Program::Defs(defs) => {
+                for def in defs {
+                    self.add_node(def);
+                }
+                for def in defs {
+                    self.add_dependency(def);
+                }
+            }
+            Program::Exp(e) => {
+                e.emit_code(self)?;
+                return Ok(self.insn_popall());
+            }
+        };
+        let sorted_nodes = topological_sort(&self.pointed);
+        self.sorted_nodes = sorted_nodes;
+        // TODO:これだとExp用に追加の記憶容量が必要
+        // stack上のノードの順番は何でもいいのでそれでなんとかできないか => Expの再コンパイルが不要なように
+        // .
+        let mut exps = vec![];
+        for id in &self.sorted_nodes {
+            if DEBUG {
+                print!(" -> {}", id.s);
+            }
 
-impl<'a> Compiler<'a> {
-    fn add_sym(&mut self, id: Id<'a>) {
-        let i = self.symbol_table.len();
-        self.symbol_table.insert(id, i);
+            let exp = self.upd_formula.get(id).unwrap();
+            exps.push(exp.clone());
+        }
+        if DEBUG {
+            println!("");
+        }
+
+        for exp in exps {
+            exp.emit_code(self)?;
+        }
+        Ok(self.insn_popall())
     }
-    fn new() -> Self {
+    fn add_sym(&mut self, id: Id) {
+        self.symbol_table.push(id)
+    }
+    fn add_node(&mut self, def: &Def) {
+        match def {
+            Def::Node { name, init: _, val } => {
+                self.nodes.insert(name.clone());
+                self.upd_formula.insert(name.clone(), val.clone());
+                self.pointed.insert(name.clone(), HashSet::new());
+            }
+            _ => return,
+        }
+    }
+    fn add_dependency(&mut self, def: &Def) {
+        match def {
+            Def::Node { name, init: _, val } => {
+                val.clone()
+                    .to_dependency(self.pointed.get_mut(name).unwrap(), &self.nodes);
+            }
+            _ => return,
+        }
+    }
+    // find_sym must be called after node is sorted
+    fn find_sym(&self, id: &Id) -> Insn1 {
+        let tbl_n = self.symbol_table.len();
+        for i in (0..tbl_n).rev() {
+            if id == &self.symbol_table[i] {
+                return Insn1::GetLocal(i);
+            }
+        }
+        let nd_n = self.sorted_nodes.len();
+        for i in 0..nd_n {
+            if id == &self.sorted_nodes[i] {
+                return Insn1::GetNode(id.clone());
+            }
+        }
+        todo!()
+    }
+    pub fn new() -> Self {
         Compiler {
             codes: vec![],
-            symbol_table: HashMap::new(),
+            nodes: HashSet::new(),
+            symbol_table: vec![],
+            pointed: HashMap::new(),
+            sorted_nodes: vec![],
+            upd_formula: HashMap::new(),
         }
     }
-    fn push_insn(&mut self, insn: Insn) {
+    pub fn insn_popall(&mut self) -> Vec<Insn1> {
+        let mut new = vec![];
+        std::mem::swap(self.codes.as_mut(), &mut new);
+        new
+    }
+    fn push_insn(&mut self, insn: Insn1) {
         self.codes.push(insn)
     }
-
-    fn compile_prog(&mut self, prog: &'a Program) -> CResult {
-        match prog {
-            Program::Repl(Repl::Def(def)) => {
-                todo!()
-            }
-            Program::Repl(Repl::Exp(exp)) => {
-                self.compile_exp(exp)?;
-                self.push_insn(Insn::Exit);
-                Ok(())
-            }
-            Program::File(defs) => todo!(),
-        }
+    pub fn codes_move(self) -> Vec<Insn1> {
+        self.codes
     }
-    fn compile_exp(&mut self, exp: &Exp) -> CResult {
-        match exp {
+    pub fn codes(&self) -> &Vec<Insn1> {
+        &self.codes
+    }
+    pub fn sorted_nodes(&self) -> &Vec<Id> {
+        &self.sorted_nodes
+    }
+}
+
+impl Exp {
+    pub fn emit_code(&self, c: &mut Compiler) -> EmitResult {
+        match self {
+            Exp::If { cond, then, els } => todo!(),
             Exp::Add(e, t) => {
-                self.compile_exp(&*e)?;
-                self.compile_term(&*t)?;
-                self.push_insn(Insn::Add);
+                e.emit_code(c)?;
+                t.emit_code(c)?;
+                c.push_insn(Insn1::Add);
                 Ok(())
             }
-            Exp::If { .. } => {
-                todo!()
-            }
-
-            Exp::Term(t) => self.compile_term(t),
-        }
-    }
-
-    fn compile_term(&mut self, term: &Term) -> CResult {
-        match term {
-            Term::Mul(t1, t2) => {
-                self.compile_term(&*t1)?;
-                self.compile_term(&*t2)?;
-                self.push_insn(Insn::Mul);
-                Ok(())
-            }
-            Term::Int(i) => {
-                self.push_insn(Insn::Int(*i));
-                Ok(())
-            }
-            Term::Bool(b) => {
-                self.push_insn(Insn::Bool(*b));
-                Ok(())
-            }
-            Term::FnCall(..) => {
-                todo!()
-            }
-            Term::Id(id) | Term::Last(id) => match self.symbol_table.get(id) {
-                Some(offset) => {
-                    self.push_insn(Insn::GetLocal(*offset));
-                    Ok(())
-                }
-                None => Err(CompileErr::IdNotFound(String::from(id.s))),
-            },
+            Exp::Term(t) => t.emit_code(c),
         }
     }
 }
-impl<'a> Def<'a> {
-    fn ids(&'a self, v: &mut Vec<Id<'a>>) {
-        match self {
-            Def::Node { name, init: _, val } => {
-                v.push(name.clone());
-                val.ids(v);
-            }
-            Def::Data { name, val } => {
-                v.push(name.clone());
-                val.ids(v);
-            }
-            Def::Func { .. } => todo!(),
-        }
-    }
-    fn check_dependency(&'a self, mp: &mut HashMap<Id<'a>, Vec<Id<'a>>>) {
-        match self {
-            Def::Node { name, init: _, val } => {
-                val.check_dependency(mp, name);
-            }
-            Def::Data { name, val } => {
-                val.check_dependency(mp, name);
-            }
-            Def::Func { .. } => todo!(),
-        }
-    }
-}
-impl<'a> Exp<'a> {
-    fn ids(&'a self, v: &mut Vec<Id<'a>>) {
-        match self {
-            Exp::If { .. } => return,
-            Exp::Add(e, t) => {
-                e.ids(v);
-                t.ids(v);
-            }
-            Exp::Term(t) => t.ids(v),
-        }
-    }
-    fn check_dependency(&'a self, mp: &mut HashMap<Id<'a>, Vec<Id<'a>>>, id: &Id<'a>) {
-        match self {
-            Exp::If { .. } => return,
-            Exp::Add(e, t) => {
-                e.check_dependency(mp, id);
-                t.check_dependency(mp, id);
-            }
-            Exp::Term(t) => t.check_dependency(mp, id),
-        }
-    }
-}
-impl<'a> Term<'a> {
-    fn ids(&'a self, v: &mut Vec<Id<'a>>) {
+impl Term {
+    fn emit_code(&self, c: &mut Compiler) -> EmitResult {
         match self {
             Term::Mul(t1, t2) => {
-                t1.ids(v);
-                t2.ids(v);
+                t1.emit_code(c)?;
+                t2.emit_code(c)?;
+                c.push_insn(Insn1::Mul);
             }
-            Term::Int(_) => return,
+            Term::Int(i) => c.push_insn(Insn1::Int(*i)),
             Term::FnCall(_, _) => todo!(),
-            Term::Bool(_) => return,
-            Term::Last(id) => v.push(id.clone()),
-            Term::Id(id) => v.push(id.clone()),
+            Term::Bool(b) => c.push_insn(Insn1::Bool(*b)),
+            Term::Last(id) => todo!(),
+            Term::Id(id) => c.push_insn(c.find_sym(id)),
         }
-    }
-    fn check_dependency(&'a self, mp: &mut HashMap<Id<'a>, Vec<Id<'a>>>, id: &Id<'a>) {
-        match self {
-            Term::Mul(t1, t2) => {
-                t1.check_dependency(mp, id);
-                t2.check_dependency(mp, id);
-            }
-            Term::Int(_) => return,
-            Term::FnCall(_, _) => return,
-            Term::Bool(_) => return,
-            Term::Last(id2) => {
-                if id != id2 {
-                    mp.get_mut(id).unwrap().push(id2.clone());
-                }
-            }
-            Term::Id(id2) => {
-                mp.get_mut(id2).unwrap().push(id.clone());
-            }
-        }
+        Ok(())
     }
 }

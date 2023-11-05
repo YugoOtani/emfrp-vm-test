@@ -12,54 +12,50 @@ ARGS =  (EXP [, EXP]*)?
 ID = [a-zA-Z][a-zA-Z0-9]*
  */
 #[derive(Debug, Clone)]
-pub enum Program<'a> {
-    File(Vec<Def<'a>>),
-    Repl(Repl<'a>),
+pub enum Program {
+    Defs(Vec<Def>),
+    Def(Def),
+    Exp(Exp),
 }
 #[derive(Debug, Clone)]
-pub enum Repl<'a> {
-    Exp(Exp<'a>),
-    Def(Def<'a>),
-}
-#[derive(Debug, Clone)]
-pub enum Def<'a> {
+pub enum Def {
     Node {
-        name: Id<'a>,
-        init: Exp<'a>,
-        val: Exp<'a>,
+        name: Id,
+        init: Exp,
+        val: Exp,
     },
     Data {
-        name: Id<'a>,
-        val: Exp<'a>,
+        name: Id,
+        val: Exp,
     },
     Func {
-        name: Id<'a>,
-        params: Vec<Id<'a>>,
-        body: Exp<'a>,
+        name: Id,
+        params: Vec<Id>,
+        body: Exp,
     },
 }
 
 #[derive(Debug, Clone)]
-pub enum Exp<'a> {
+pub enum Exp {
     If {
-        cond: Box<Exp<'a>>,
-        then: Box<Exp<'a>>,
-        els: Box<Exp<'a>>,
+        cond: Box<Exp>,
+        then: Box<Exp>,
+        els: Box<Exp>,
     },
-    Add(Box<Exp<'a>>, Box<Term<'a>>),
-    Term(Box<Term<'a>>),
+    Add(Box<Exp>, Box<Term>),
+    Term(Box<Term>),
 }
 #[derive(Debug, Clone)]
-pub enum Term<'a> {
-    Mul(Box<Term<'a>>, Box<Term<'a>>),
+pub enum Term {
+    Mul(Box<Term>, Box<Term>),
     Int(i32),
-    FnCall(Box<Id<'a>>, Vec<Exp<'a>>),
+    FnCall(Box<Id>, Vec<Exp>),
     Bool(bool),
-    Last(Id<'a>),
-    Id(Id<'a>),
+    Last(Id),
+    Id(Id),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Id<'a> {
-    pub s: &'a str,
+pub struct Id {
+    pub s: String,
 }

@@ -4,18 +4,18 @@ use crate::ast::*;
 
 grammar;
 
-pub Top : Top<'input> = {
-    <e:Exp> => Top::Exp(e),
-    <defs:(Def)*> => Top::Defs(defs)
+pub Program : Program = {
+    <e:Exp> => Program::Exp(e),
+    <def:Def> => Program::Def(def),
 }
-Def : Def<'input> = {
+pub Def : Def = {
     "node" "init" "[" <init:Exp> "]" <name:Id> "=" <val:Exp>  => Def::Node{name,init,val},
     "data" <name:Id> "=" <val:Exp> => Def::Data{name,val},
     "func" <name:Id> "(" <params:Comma<Id>> ")" "=" <body:Exp> => Def::Func{name,params,body}
 }
 
 
-Exp: Exp<'input> = {
+Exp: Exp = {
     "if"  <cond:Exp>  "{" <then:Exp> "}" "else" "{" <els:Exp> "}" 
         => Exp::If{
             cond:Box::new(cond),
@@ -27,11 +27,11 @@ Exp: Exp<'input> = {
     <t:Term> => Exp::Term(Box::new(t))
 };
 
-Term : Term<'input> = {
+Term : Term = {
     <t1:Term> "*" <t2:MonoTerm> => Term::Mul(Box::new(t1),Box::new(t2)),
     <t:MonoTerm> => t
 }
-MonoTerm : Term<'input> = {
+MonoTerm : Term = {
     <name:Id> "(" <args:Comma<Exp>> ")" => Term::FnCall(Box::new(name),args),
     "true" => Term::Bool(true),
     "false" => Term::Bool(false),
@@ -40,11 +40,11 @@ MonoTerm : Term<'input> = {
     <t:IdAtLast> => t,
     <id:Id> => Term::Id(id)
 }
-IdAtLast : Term<'input> = {
-     <s:r"[a-z][a-z1-9]*@last"> => Term::Last(Id{s:&s[0..s.len()-5]})
+IdAtLast : Term = {
+     <s:r"[a-z][a-z1-9]*@last"> => Term::Last(Id{s:(&s[0..s.len()-5]).to_string()})
 }
-Id : Id<'input> = {
-    <s:r"[a-z][a-z1-9]*"> => Id{s}
+Id : Id = {
+    <s:r"[a-z][a-z1-9]*"> => Id{s:s.to_string()}
 }
 Comma<T>: Vec<T> = { 
     <mut v:(<T> ",")*> <e:T?> => match e {
