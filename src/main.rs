@@ -36,7 +36,7 @@ use std::sync::mpsc;
 lalrpop_mod!(pub emfrp);
 const CONSOLE: &str = " > ";
 const CONSOLE2: &str = "...";
-const DEBUG: bool = true;
+const DEBUG: bool = false;
 fn main() {
     let (sender, from_machine) = mpsc::channel();
     let (_, sender) = run(sender);
@@ -82,14 +82,14 @@ fn main() {
             }
         };
         if DEBUG {
-            //println!("{:?}", prog);
+            println!("{:?}", prog);
         }
         match cmp.compile(&prog) {
             Ok(res) => {
                 let insn2 = to_insn2(res, cmp.sorted_nodes());
-                if DEBUG {
-                    sender.send(ChangeCode::new(insn2)).unwrap()
-                }
+
+                sender.send(ChangeCode::new(insn2)).unwrap();
+
                 match from_machine.recv() {
                     Ok(msg) => println!("{msg}"),
                     Err(_) => unreachable!(), //? channel is closed

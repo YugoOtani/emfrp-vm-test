@@ -26,7 +26,7 @@ pub fn run(out: Sender<String>) -> (JoinHandle<()>, Sender<ChangeCode>) {
                     Ok(v) => println!("Ok : {:?}", v),
                     Err(msg) => println!("{:?}", msg),
                 }*/
-                out.send(format!("{:?} {:?} ",node,code)).unwrap(),
+                out.send(format!("[from machine] node:{:?} code:{:?} ",node,code)).unwrap(),
                 Err(_) => return, // sender is dropped?
             };
         }),

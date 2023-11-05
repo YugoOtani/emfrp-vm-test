@@ -52,6 +52,9 @@ impl Compiler {
         // stack上のノードの順番は何でもいいのでそれでなんとかできないか => Expの再コンパイルが不要なように
         // .
         let mut exps = vec![];
+        if DEBUG {
+            println!("[sorted nodes]")
+        }
         for id in &self.sorted_nodes {
             if DEBUG {
                 print!(" -> {}", id.s);
