@@ -8,7 +8,6 @@ pub mod machine;
 pub mod qstr;
 
 use crate::compile::*;
-use insn::*;
 use lalrpop_util::lalrpop_mod;
 use machine::*;
 
@@ -33,13 +32,20 @@ use std::sync::mpsc;
 // machineで、runの各ループごとにexecを呼んでおり、そこで新しいスタックを用意しているのでそれを改善する
 // 新しいinsn2を送ったあと、それまでのnodeの値との整合性をどうするか
 
+//今 ->
+
 lalrpop_mod!(pub emfrp);
 const CONSOLE: &str = " > ";
 const CONSOLE2: &str = "...";
 const DEBUG: bool = false;
 fn main() {
-    let (sender, from_machine) = mpsc::channel();
-    let (_, sender) = run(sender);
+    // channel : machine --> this thread
+    // receive result from machine
+    let (msg_sender, msg_receiver) = mpsc::channel();
+
+    // channel : this thread --> machine
+    // send bytecode to machine
+    let (_, prog_sender) = run(msg_sender);
 
     let parser_prog = ProgramParser::new();
     let parser_def = DefParser::new();
@@ -86,11 +92,11 @@ fn main() {
         }
         match cmp.compile(&prog) {
             Ok(res) => {
-                let insn2 = to_insn2(res, cmp.sorted_nodes());
+                let insn2 = cmp.to_insn2(res);
 
-                sender.send(ChangeCode::new(insn2)).unwrap();
+                prog_sender.send(ChangeCode::new(insn2)).unwrap();
 
-                match from_machine.recv() {
+                match msg_receiver.recv() {
                     Ok(msg) => println!("{msg}"),
                     Err(_) => unreachable!(), //? channel is closed
                 }
