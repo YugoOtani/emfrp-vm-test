@@ -2,13 +2,13 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::ast::*;
 
-pub fn topological_sort(st: &HashMap<Id, HashSet<Id>>) -> Vec<Id> {
+pub fn topological_sort(st: &HashMap<Id, HashSet<Id>>) -> Vec<&Id> {
     let mut q = VecDeque::new();
     let mut cnt = HashMap::new();
     let mut ret = vec![];
     for (after, befores) in st {
         if befores.len() == 0 {
-            q.push_back(after.clone())
+            q.push_back(after)
         } else {
             cnt.insert(after, befores.len());
         }
@@ -18,7 +18,7 @@ pub fn topological_sort(st: &HashMap<Id, HashSet<Id>>) -> Vec<Id> {
             if befores.contains(&nd) {
                 *cnt.get_mut(after).unwrap() -= 1;
                 if *cnt.get(after).unwrap() == 0 {
-                    q.push_back(after.clone())
+                    q.push_back(after)
                 }
             }
         }

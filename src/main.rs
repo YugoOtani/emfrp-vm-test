@@ -17,6 +17,8 @@ use crate::ast::*;
 use crate::emfrp::*;
 use std::sync::mpsc;
 //TODO
+// node用の領域をまとめて確保
+// nodeの書き換え時のノードの再確保を少なくできるようにする
 // nodeのinitの検査
 // @lastの依存関係
 // Global変数
@@ -31,25 +33,31 @@ use std::sync::mpsc;
 // @lastのemit_code
 // machineで、runの各ループごとにexecを呼んでおり、そこで新しいスタックを用意しているのでそれを改善する
 // 新しいinsn2を送ったあと、それまでのnodeの値との整合性をどうするか
-
+// expの場合は値を返すが、nodeの場合はループを続ける。この違いをどう表現するか
+// exec時のunwrap(addなのにstackが空の場合にどうするか)
+// node用のメモリ領域をスタックと別に確保するかどうか。そうするならなぜそうしたか
+// 参照されなくなったnode, dataの削除
 //今 ->
 
 lalrpop_mod!(pub emfrp);
 const CONSOLE: &str = " > ";
 const CONSOLE2: &str = "...";
 const DEBUG: bool = false;
+const MACHINE_MEMCHECK_MILLIS: u64 = 100;
+const MACHINE_FILE: &str = "machine_state.txt";
 fn main() {
     // channel : machine --> this thread
     // receive result from machine
-    let (msg_sender, msg_receiver) = mpsc::channel();
+    let (res_sender, res_receiver) = mpsc::channel();
 
     // channel : this thread --> machine
     // send bytecode to machine
-    let (_, prog_sender) = run(msg_sender);
+    let (_, msg_sender) = machine_run(res_sender);
 
     let parser_prog = ProgramParser::new();
     let parser_def = DefParser::new();
     let mut cmp = Compiler::new();
+
     for _ in 0.. {
         stdout().flush().unwrap();
         print!("{CONSOLE}");
@@ -92,13 +100,24 @@ fn main() {
         }
         match cmp.compile(&prog) {
             Ok(res) => {
-                let insn2 = cmp.to_insn2(res);
-
-                prog_sender.send(ChangeCode::new(insn2)).unwrap();
-
-                match msg_receiver.recv() {
-                    Ok(msg) => println!("{msg}"),
-                    Err(_) => unreachable!(), //? channel is closed
+                match res {
+                    CompileResult::DefNode(code) => {
+                        if DEBUG {
+                            println!("[Compile Result]");
+                            for insn in &code {
+                                println!("  {:?}", insn);
+                            }
+                        }
+                        msg_sender.send(Msg::DefNode(code)).unwrap();
+                    }
+                    CompileResult::Exp(e) => {
+                        msg_sender.send(Msg::Exp(e)).unwrap();
+                        match res_receiver.recv() {
+                            // wait until result comes
+                            Ok(res) => println!("{res}"),
+                            Err(_) => unreachable!(), //? channel is closed
+                        }
+                    }
                 }
             }
             Err(msg) => println!("{:?}", msg),
