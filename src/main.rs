@@ -1,5 +1,6 @@
 pub mod ast;
 pub mod compile;
+pub mod datastructure;
 pub mod dependency;
 pub mod emtypes;
 pub mod exec;
@@ -17,32 +18,30 @@ use crate::ast::*;
 use crate::emfrp::*;
 use std::sync::mpsc;
 //TODO
-// node用の領域をまとめて確保
-// nodeの書き換え時のノードの再確保を少なくできるようにする
-// nodeのinitの検査
-// @lastの依存関係
+
+// vectorのサイズをあらかじめ計算する
+// node再定義時、前回のノードの値との対応をどうするか
+// node同士、nodeとdataの名前の衝突
+// node用の領域をまとめて確保する
+// nodeの書き換え時、ノードの再確保を少なくする
+// dataの実装
+// @lastの実装
 // Global変数
-// node を　dataでおきかえたとき
 // 循環参照検知
-// node a = EXPのEXPにおける、依存関係解析時のnodeとdataの区別)
-// nodeのスコープ、存在検査
-// move upd_formula out of dependencies
-// dependencyのメモリ量 (clone多用)
-// compile.rs l52
-// init[val] におけるvalにnodeがないか検査
-// @lastのemit_code
-// machineで、runの各ループごとにexecを呼んでおり、そこで新しいスタックを用意しているのでそれを改善する
-// 新しいinsn2を送ったあと、それまでのnodeの値との整合性をどうするか
-// expの場合は値を返すが、nodeの場合はループを続ける。この違いをどう表現するか
-// exec時のunwrap(addなのにstackが空の場合にどうするか)
+// replにおいてexpをprintする
+
+//compile時検査
+// nodeのinitの値の計算ができるか
+// nodeのinitの部分が省略されているか、ノードを参照する場合
+// nodeのスコープ
+// machine側のエラーの処理方法 exec時のunwrap(addなのにstackが空の場合にどうするか)など
 // node用のメモリ領域をスタックと別に確保するかどうか。そうするならなぜそうしたか
 // 参照されなくなったnode, dataの削除
-//今 ->
 
 lalrpop_mod!(pub emfrp);
 const CONSOLE: &str = " > ";
 const CONSOLE2: &str = "...";
-const DEBUG: bool = false;
+const DEBUG: bool = true;
 const MACHINE_MEMCHECK_MILLIS: u64 = 100;
 const MACHINE_FILE: &str = "machine_state.txt";
 fn main() {
@@ -95,19 +94,11 @@ fn main() {
                 }
             }
         };
-        if DEBUG {
-            println!("{:?}", prog);
-        }
+
         match cmp.compile(&prog) {
             Ok(res) => {
                 match res {
                     CompileResult::DefNode(code) => {
-                        if DEBUG {
-                            println!("[Compile Result]");
-                            for insn in &code {
-                                println!("  {:?}", insn);
-                            }
-                        }
                         msg_sender.send(Msg::DefNode(code)).unwrap();
                     }
                     CompileResult::Exp(e) => {

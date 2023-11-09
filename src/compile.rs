@@ -1,43 +1,43 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::dependency::topological_sort;
+use crate::datastructure::List;
+use crate::dependency::SortResult;
 use crate::insn::*;
 use crate::{ast::*, DEBUG};
 
-//TODOS
-// how to handle error
-// calc codesize, tablesize first
-// initail value of node
-//  when to add variable name (in def) to symbol_table
-// name duplication?
-pub struct Compiler {
-    codes: Vec<Insn1>,
-    nodes: HashSet<Id>,
-    symbol_table: Vec<Id>,
-    pointed: HashMap<Id, HashSet<Id>>,
-    compiled_node: HashMap<Id, CompiledNode>,
-}
-struct CompiledNode {
+struct NodeInfo {
+    pointed: List<Id>,
     init: Vec<Insn1>,
     update: Vec<Insn1>,
 }
+
+pub struct Compiler {
+    codes: Vec<Insn1>,
+    node_info: HashMap<Id, NodeInfo>,
+    symbol_table: Vec<Id>,
+}
+
 #[derive(Debug)]
-pub enum CompileErr {
-    IdNotFound(String),
+pub enum CompileErr<'a> {
+    IdNotFound(&'a Id),
+    CircularRef(Vec<&'a Id>),
 }
 pub enum CompileResult {
     DefNode(Vec<Insn2>),
     Exp(Vec<Insn2>),
 }
-pub type CResult = Result<CompileResult, CompileErr>;
-type EmitResult = Result<(), CompileErr>;
+pub type CResult<'a> = Result<CompileResult, CompileErr<'a>>;
+type EmitResult<'a> = Result<(), CompileErr<'a>>;
 
 impl Compiler {
-    pub fn compile(&mut self, prog: &Program) -> CResult {
+    pub fn compile<'a, 'b: 'a>(&'b mut self, prog: &'a Program) -> CResult<'a> {
         assert!(self.codes.len() == 0);
         self.register_new_node(prog);
-        self.compile_node(prog)?;
-        let sorted_nodes = topological_sort(&self.pointed);
+        self.compile_nodes(prog)?;
+        let sorted_nodes = match self.topological_sort() {
+            SortResult::Success(nd) => nd,
+            SortResult::CicularRef(nd) => return Err(CompileErr::CircularRef(nd)),
+        };
         if DEBUG {
             print!("[dependency]");
             for id in &sorted_nodes {
@@ -48,7 +48,11 @@ impl Compiler {
         let mut ret = vec![];
         ret.push(Insn2::DeleteNodes);
         for id in &sorted_nodes {
-            let CompiledNode { init, update: _ } = self.compiled_node.get(id).unwrap();
+            let NodeInfo {
+                pointed: _,
+                init,
+                update: _,
+            } = self.node_info.get(id).unwrap();
             for insn in init {
                 Self::to_insn2(insn, &sorted_nodes, &mut ret);
             }
@@ -56,7 +60,11 @@ impl Compiler {
         }
         let n0 = ret.len() as isize;
         for id in &sorted_nodes {
-            let CompiledNode { init: _, update } = self.compiled_node.get(id).unwrap();
+            let NodeInfo {
+                pointed: _,
+                init: _,
+                update,
+            } = self.node_info.get(id).unwrap();
             for insn in update {
                 Self::to_insn2(insn, &sorted_nodes, &mut ret);
             }
@@ -101,8 +109,14 @@ impl Compiler {
                 init: _,
                 val: _,
             } => {
-                self.nodes.insert(name.clone());
-                self.pointed.insert(name.clone(), HashSet::new());
+                self.node_info.insert(
+                    name.clone(),
+                    NodeInfo {
+                        pointed: List::new(),
+                        init: vec![],
+                        update: vec![],
+                    },
+                );
             }
             _ => return,
         }
@@ -113,14 +127,15 @@ impl Compiler {
     fn add_dependency(&mut self, def: &Def) {
         match def {
             Def::Node { name, init: _, val } => {
-                val.clone()
-                    .to_dependency(self.pointed.get_mut(name).unwrap(), &self.nodes);
+                let ptr = &mut self.node_info.get_mut(name).unwrap().pointed as *mut List<Id>;
+                let lst = unsafe { ptr.as_mut().unwrap() };
+                val.to_dependency(lst, self);
             }
             _ => return,
         }
     }
-    fn compile_node(&mut self, prog: &Program) -> EmitResult {
-        fn compile_def(c: &mut Compiler, def: &Def) -> EmitResult {
+    fn compile_nodes<'a>(&mut self, prog: &'a Program) -> EmitResult<'a> {
+        fn compile_node<'a>(c: &mut Compiler, def: &'a Def) -> EmitResult<'a> {
             match def {
                 //todo unregister
                 Def::Node { name, init, val } => {
@@ -129,8 +144,10 @@ impl Compiler {
                     let init = c.insn_popall();
                     val.emit_code(c)?;
                     let update = c.insn_popall();
-                    c.compiled_node
-                        .insert(name.clone(), CompiledNode { init, update });
+
+                    let info = c.node_info.get_mut(name).unwrap();
+                    info.init = init;
+                    info.update = update;
                     Ok(())
                 }
                 Def::Data { .. } => Ok(()),
@@ -140,11 +157,11 @@ impl Compiler {
         match prog {
             Program::Defs(defs) => {
                 for def in defs {
-                    compile_def(self, def)?;
+                    compile_node(self, def)?;
                 }
                 Ok(())
             }
-            Program::Def(def) => compile_def(self, def),
+            Program::Def(def) => compile_node(self, def),
             Program::Exp(_) => Ok(()),
         }
     }
@@ -156,7 +173,7 @@ impl Compiler {
                 return Insn1::GetLocal(i);
             }
         }
-        if self.nodes.contains(id) {
+        if self.node_info.contains_key(id) {
             return Insn1::GetNode(id.clone());
         }
         todo!() //Global Variable
@@ -164,19 +181,21 @@ impl Compiler {
     pub fn new() -> Self {
         Compiler {
             codes: vec![],
-            nodes: HashSet::new(),
+            node_info: HashMap::new(),
             symbol_table: vec![],
-            pointed: HashMap::new(),
-            compiled_node: HashMap::new(),
         }
     }
-    pub fn insn_popall(&mut self) -> Vec<Insn1> {
+    fn insn_popall(&mut self) -> Vec<Insn1> {
         let mut new = vec![];
         std::mem::swap(self.codes.as_mut(), &mut new);
         new
     }
+    fn topological_sort(&self) -> SortResult {
+        fn dfs(cur: &Id, par: &Id, finished: &mut HashSet<Id>, seen: &mut HashSet<Id>) {}
+        todo!()
+    }
 
-    pub fn to_insn2(insn: &Insn1, sorted_nodes: &Vec<&Id>, res: &mut Vec<Insn2>) {
+    fn to_insn2(insn: &Insn1, sorted_nodes: &Vec<&Id>, res: &mut Vec<Insn2>) {
         let insn2 = match insn {
             Insn1::Add => Insn2::Add,
             Insn1::Je(i) => Insn2::Je(*i),
@@ -207,7 +226,7 @@ impl Compiler {
 }
 
 impl Exp {
-    pub fn emit_code(&self, c: &mut Compiler) -> EmitResult {
+    pub fn emit_code<'a>(&'a self, c: &mut Compiler) -> EmitResult<'a> {
         match self {
             Exp::If { .. } => todo!(),
             Exp::Add(e, t) => {
@@ -219,9 +238,23 @@ impl Exp {
             Exp::Term(t) => t.emit_code(c),
         }
     }
+    fn to_dependency(&self, lst: &mut List<Id>, cmp: &Compiler) {
+        match self {
+            Exp::If { cond, then, els } => {
+                cond.to_dependency(lst, cmp);
+                then.to_dependency(lst, cmp);
+                els.to_dependency(lst, cmp);
+            }
+            Exp::Add(e, t) => {
+                e.to_dependency(lst, cmp);
+                t.to_dependency(lst, cmp);
+            }
+            Exp::Term(t) => t.to_dependency(lst, cmp),
+        }
+    }
 }
 impl Term {
-    fn emit_code(&self, c: &mut Compiler) -> EmitResult {
+    fn emit_code<'a>(&'a self, c: &mut Compiler) -> EmitResult<'a> {
         match self {
             Term::Mul(t1, t2) => {
                 t1.emit_code(c)?;
@@ -235,6 +268,31 @@ impl Term {
             Term::Id(id) => c.push_insn(c.find_sym(id)),
         }
         Ok(())
+    }
+    fn to_dependency(&self, lst: &mut List<Id>, c: &Compiler) {
+        match self {
+            Term::Mul(t1, t2) => {
+                t1.to_dependency(lst, c);
+                t2.to_dependency(lst, c);
+            }
+            Term::Int(_) => return,
+            Term::FnCall(_, args) => {
+                for arg in args {
+                    arg.to_dependency(lst, c);
+                }
+            }
+            Term::Bool(_) => return,
+
+            // node left_variable = (idの式)
+            Term::Id(id) => {
+                if c.node_info.contains_key(id) {
+                    lst.push(id.clone())
+                } else {
+                    // idがnodeではない(dataなど)
+                }
+            }
+            Term::Last(_) => return,
+        }
     }
 }
 
