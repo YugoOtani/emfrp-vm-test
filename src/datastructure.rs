@@ -16,7 +16,7 @@ impl<T> List<T> {
     pub fn push(&mut self, t: T) {
         let newnd = Some(Box::new(Node {
             car: t,
-            cdr: std::mem::replace(&mut self.head, None),
+            cdr: std::mem::take(&mut self.head),
         }));
         self.head = newnd;
     }

@@ -37,6 +37,7 @@ use std::sync::mpsc;
 // machine側のエラーの処理方法 exec時のunwrap(addなのにstackが空の場合にどうするか)など
 // node用のメモリ領域をスタックと別に確保するかどうか。そうするならなぜそうしたか
 // 参照されなくなったnode, dataの削除
+// compile.rs のunsafeブロック
 
 lalrpop_mod!(pub emfrp);
 const CONSOLE: &str = " > ";
