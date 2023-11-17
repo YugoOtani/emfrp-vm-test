@@ -9,7 +9,7 @@ pub Program : Program = {
     <def:Def> => Program::Def(def),
 }
 pub Def : Def = {
-    "node" "init" "[" <init:Exp> "]" <name:Id> "=" <val:Exp>  => Def::Node{name,init,val},
+    "node" <name:Id> <init:("(" <Exp> ")")?>  "=" <val:Exp>  => Def::Node{name,init,val},
     "data" <name:Id> "=" <val:Exp> => Def::Data{name,val},
     "func" <name:Id> "(" <params:Comma<Id>> ")" "=" <body:Exp> => Def::Func{name,params,body}
 }

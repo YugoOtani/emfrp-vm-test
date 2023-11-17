@@ -21,7 +21,7 @@ pub enum Program {
 pub enum Def {
     Node {
         name: Id,
-        init: Exp,
+        init: Option<Exp>,
         val: Exp,
     },
     Data {
@@ -55,7 +55,7 @@ pub enum Term {
     Id(Id),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub struct Id {
     pub s: String,
 }

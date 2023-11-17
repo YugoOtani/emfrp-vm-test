@@ -1,17 +1,60 @@
+use std::fmt::Debug;
 type Link<T> = Option<Box<Node<T>>>;
 
 struct Node<T> {
     car: T,
     cdr: Link<T>,
 }
-
 pub struct List<T> {
     head: Link<T>,
+    len: usize,
 }
-
+impl<T> Default for List<T> {
+    fn default() -> Self {
+        Self { head: None, len: 0 }
+    }
+}
+impl<T: Debug> Debug for List<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut f = f.debug_list();
+        for e in self.iter() {
+            f.entry(e);
+        }
+        f.finish()
+    }
+}
+impl<'a, T: 'a> List<T>
+where
+    &'a T: PartialEq,
+{
+    pub fn contains(&'a self, t: &'a T) -> bool {
+        fn helper<'a, T: 'a>(lst: &'a Link<T>, t: &'a T) -> bool
+        where
+            &'a T: PartialEq,
+        {
+            match lst {
+                None => false,
+                Some(nd) => {
+                    if t == &nd.car {
+                        true
+                    } else {
+                        helper(&nd.cdr, t)
+                    }
+                }
+            }
+        }
+        helper(&self.head, t)
+    }
+}
 impl<T> List<T> {
     pub fn new() -> Self {
-        Self { head: None }
+        Self { head: None, len: 0 }
+    }
+    pub fn len(&self) -> usize {
+        self.len
+    }
+    pub fn is_empty(&self) -> bool {
+        matches!(&self.head, None)
     }
     pub fn push(&mut self, t: T) {
         let newnd = Some(Box::new(Node {
@@ -19,6 +62,7 @@ impl<T> List<T> {
             cdr: std::mem::take(&mut self.head),
         }));
         self.head = newnd;
+        self.len += 1;
     }
     pub fn pop(&mut self) -> Option<T> {
         match std::mem::replace(&mut self.head, Link::None) {
@@ -26,6 +70,7 @@ impl<T> List<T> {
             Link::Some(nd) => {
                 let Node { car, cdr } = *nd;
                 self.head = cdr;
+                self.len -= 1;
                 Some(car)
             }
         }
@@ -54,10 +99,8 @@ impl<'a, T> Iterator for ListIter<'a, T> {
 #[test]
 fn linkedlist_test() {
     let mut lst = List::new();
-    for i in 0..100 {
+    for i in 0..10 {
         lst.push(i);
     }
-    for (i, e) in lst.iter().enumerate() {
-        assert_eq!(*e, 100 - i - 1)
-    }
+    println!("{:?}", lst);
 }

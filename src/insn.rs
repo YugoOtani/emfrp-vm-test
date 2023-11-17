@@ -1,39 +1,28 @@
-use crate::ast::Id;
+#[derive(Debug, Clone)]
 
-#[derive(Debug)]
-pub enum Insn2 {
+pub enum Insn {
+    Nil,
     Add,
     Je(isize),
     J(isize),
     Mul,
     Int(i32),
     Bool(bool),
-    GetLocal(usize),
-    SetLocal(usize),
-    Print,
-    AllocNode,
-    AllocNodes(usize),
-    DeleteNodes,
-    GetNode(usize),
-    SetNode(usize),
-    Exit,
-}
-
-#[derive(Debug)]
-pub enum Insn1 {
-    Add,
-    Je(isize),
-    J(isize),
-    Mul,
-    Int(i32),
-    Bool(bool),
-    GetLocal(usize),
-    SetLocal(usize),
-    Print,
-    AllocNode,
-    AllocNodes(usize),
-    GetNode(Id),
-    SetNode(Id),
+    GetLocal(StackOffset),
+    SetLocal(StackOffset),
+    Halt, // almost the same as Exit but not returning value
+    AllocNode(NodeOffset, Vec<Insn>),
+    ReallocNode,
+    Return,
+    Call(NArgs),
+    UpdateNode(NodeOffset),
+    GetNode(NodeOffset),
+    SetNode(NodeOffset),
+    GetLast(NodeOffset),
+    SaveLast,
     Exit,
     Placeholder,
 }
+pub type NArgs = usize;
+pub type NodeOffset = usize;
+pub type StackOffset = usize;
