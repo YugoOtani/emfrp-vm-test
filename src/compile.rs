@@ -44,6 +44,7 @@ impl Compiler {
             e.push(Insn::Exit);
             return Ok(CompiledCode::Exp(e));
         }
+
         self.register_new_node(prog)?;
         self.emit_alloc_node(prog)?;
         self.push_insn(Insn::Halt);

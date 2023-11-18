@@ -16,11 +16,12 @@ use std::io::{prelude::*, stdin, stdout};
 
 use crate::ast::*;
 use crate::emfrp::*;
+use std::time::Instant;
 
 lalrpop_mod!(pub emfrp);
 const CONSOLE: &str = " > ";
 const CONSOLE2: &str = "...";
-const DEBUG: bool = false;
+const DEBUG: bool = true;
 const MACHINE_MEMCHECK_MILLIS: u64 = 100;
 const MACHINE_FILE: &str = "machine_state.txt";
 const UPD_FREQUENCY_MS: u64 = 1000;
@@ -68,8 +69,16 @@ fn main() {
                 }
             }
         };
-
-        match cmp.compile(&prog) {
+        let compile_st = Instant::now();
+        let compiled = cmp.compile(&prog);
+        let compile_ed = Instant::now();
+        if DEBUG {
+            println!(
+                "compile time : {}us",
+                compile_ed.duration_since(compile_st).as_micros()
+            )
+        }
+        match compiled {
             Ok(res) => {
                 let mut code = match res {
                     CompiledCode::DefNode { init, upd } => Code::DefNode { init, upd },

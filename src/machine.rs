@@ -4,7 +4,7 @@ use std::{
         Arc, Mutex,
     },
     thread::{self},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use crate::{
@@ -25,7 +25,7 @@ pub enum Value {
 }
 #[derive(Debug)]
 pub enum RuntimeErr {
-    ValueLeft,
+    StackOverflow,
 }
 
 #[derive(Debug)]
@@ -43,20 +43,20 @@ pub enum Code {
 
 struct Machine {
     stack: Vec<Value>,
-    nodes: Vec<Value>,
-    lasts: Vec<Value>,
-    upd: Vec<Vec<Insn>>,
+    node_v: Vec<Value>,
+    node_v_last: Vec<Value>,
+    node_upd: Vec<Vec<Insn>>,
+    node_callback: Vec<usize>,
     out: Sender<String>,
     current_code: Vec<Insn>,
 }
 impl Debug for Machine {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut nd_upd = String::new();
-        assert_eq!(self.upd.len(), self.nodes.len());
-        for i in 0..self.upd.len() {
+        for i in 0..self.node_v.len() {
             nd_upd.push_str(&format!(
                 "    {:?} {:?} {:?}\n",
-                self.lasts[i], self.nodes[i], self.upd[i]
+                self.node_v[i], self.node_v_last[i], self.node_upd[i]
             ))
         }
         write!(
@@ -90,10 +90,6 @@ impl Debug for Code {
         write!(f, "{}", ret)
     }
 }
-
-/*
-[machine, timer] <-(program, res_sender)-> [pc]
- */
 
 impl Msg {
     pub fn get_msg(&self) -> String {
@@ -154,7 +150,9 @@ pub fn machine_run() -> Msg {
         machine.new_code(code);
         loop {
             if check_if_true(&timer) {
-                machine.exec_upd();
+                if let Err(e) = machine.exec_upd() {
+                    Machine::write_file_append(format!("Update Error : {:?}", e))
+                }
             }
 
             if let Some(newcode) = Msg::try_receive_code(&code_mtx, &code_is_updated) {
@@ -189,6 +187,12 @@ fn check_if_true(mtx: &Arc<Mutex<bool>>) -> bool {
 }
 
 impl Machine {
+    fn make_new_node(&mut self) {
+        self.node_upd.push(vec![]);
+        self.node_v.push(Value::Nil);
+        self.node_v_last.push(Value::Nil);
+        self.node_callback.push(0)
+    }
     fn new(res_sender: Sender<String>) -> Self {
         OpenOptions::new()
             .create(true)
@@ -196,28 +200,49 @@ impl Machine {
             .truncate(true)
             .open(MACHINE_FILE)
             .unwrap();
-        let mut upd = Vec::with_capacity(INITIAL_NODE_SIZE);
-        let mut nodes = Vec::with_capacity(INITIAL_NODE_SIZE);
-        let mut lasts = Vec::with_capacity(INITIAL_NODE_SIZE);
-        for _ in 0..INITIAL_NODE_SIZE {
-            upd.push(vec![]);
-            nodes.push(Value::Nil);
-            lasts.push(Value::Nil);
-        }
-        Self {
+        let node_callback = Vec::with_capacity(INITIAL_NODE_SIZE);
+        let node_upd = Vec::with_capacity(INITIAL_NODE_SIZE);
+        let node_v = Vec::with_capacity(INITIAL_NODE_SIZE);
+        let node_v_last = Vec::with_capacity(INITIAL_NODE_SIZE);
+        let mut machine = Self {
             stack: vec![],
-            nodes,
-            upd,
-            lasts,
+            node_callback,
+            node_upd,
+            node_v,
+            node_v_last,
             out: res_sender,
             current_code: vec![Insn::Halt],
+        };
+        for _ in 0..INITIAL_NODE_SIZE {
+            machine.make_new_node()
         }
+        machine
     }
-    fn exec_upd(&mut self) {
+    fn exec_upd(&mut self) -> Result<(), RuntimeErr> {
+        let st = Instant::now();
         let code = &self.current_code[0] as *const Insn;
-        self.exec_insn(code)
+        let res = self.exec_insn(code);
+        let ed = Instant::now();
+
+        if DEBUG {
+            Self::write_file_append(format!(
+                "update time : {}us\n",
+                ed.duration_since(st).as_micros()
+            ));
+        }
+        res?;
+        Ok(())
     }
-    fn exec_insn(&mut self, insn: *const Insn) {
+    fn write_file_append(s: String) {
+        OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(MACHINE_FILE)
+            .unwrap()
+            .write_all(s.as_bytes())
+            .unwrap();
+    }
+    fn exec_insn(&mut self, insn: *const Insn) -> Result<Value, RuntimeErr> {
         let mut rip = insn;
         let mut rbp = 0;
         unsafe {
@@ -258,13 +283,9 @@ impl Machine {
                     Insn::Exit => {
                         let v = self.stack.pop().unwrap();
                         if self.stack.is_empty() {
-                            self.out.send(format!("[OK] {:?}", v)).unwrap();
-                            return;
+                            return Ok(v);
                         } else {
-                            self.out
-                                .send(format!("[RuntimeError] value left on the stack"))
-                                .unwrap();
-                            return;
+                            panic!()
                         }
                     }
                     Insn::GetLocal(offset) => {
@@ -277,27 +298,29 @@ impl Machine {
                     }
                     Insn::AllocNode(u, insn) => {
                         let v = self.stack.pop().unwrap();
-                        self.nodes[*u] = v;
-                        self.upd[*u] = insn.clone();
+                        self.node_v[*u] = v;
+                        self.node_upd[*u] = insn.clone();
                     }
-                    Insn::GetNode(i) => self.stack.push(self.nodes[*i].clone()),
+                    Insn::GetNode(i) => self.stack.push(self.node_v[*i].clone()),
                     Insn::SetNode(i) => {
                         let v = self.stack.pop().unwrap();
-                        self.nodes[*i] = v;
+                        self.node_v[*i] = v;
                     }
                     Insn::Placeholder => panic!(),
-                    Insn::Halt => return,
+                    Insn::Halt => {
+                        assert!(self.stack.is_empty());
+                        return Ok(Value::Nil);
+                    }
                     Insn::UpdateNode(i) => {
                         self.stack.push(Value::Usize(rbp));
                         self.stack.push(Value::Insn(rip));
-                        rip = &self.upd[*i][0] as *const Insn;
+                        rip = &self.node_upd[*i][0] as *const Insn;
                         rip = rip.offset(-1);
                     }
                     Insn::ReallocNode => {
-                        let n = self.nodes.len();
+                        let n = self.node_v.len();
                         for _ in 0..n {
-                            self.nodes.push(Value::Nil);
-                            self.upd.push(vec![]);
+                            self.make_new_node();
                         }
                     }
                     Insn::Return => {
@@ -317,23 +340,23 @@ impl Machine {
                         };
                     }
                     Insn::Call(_) => todo!(),
-                    Insn::SaveLast => std::mem::swap(&mut self.lasts, &mut self.nodes),
-                    Insn::GetLast(i) => self.stack.push(self.lasts[*i].clone()),
+                    Insn::SaveLast => std::mem::swap(&mut self.node_v_last, &mut self.node_v),
+                    Insn::GetLast(i) => self.stack.push(self.node_v_last[*i].clone()),
                 }
                 rip = rip.offset(1);
 
                 let s = if DEBUG {
-                    format!("node : {:?}   stack : {:?}\n", self.lasts, self.stack)
+                    format!(
+                        "{:?}\nnode : {:?}   stack : {:?}\n",
+                        rip.as_ref().unwrap(),
+                        self.node_v,
+                        self.stack
+                    )
                 } else {
-                    format!("node : {:?}\n", self.lasts)
+                    format!("node : {:?}\n", self.node_v)
                 };
-                OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(MACHINE_FILE)
-                    .unwrap()
-                    .write_all(s.as_bytes())
-                    .unwrap();
+                Self::write_file_append(s);
+
                 thread::sleep(time::Duration::from_millis(100))
             }
         }
@@ -347,12 +370,30 @@ impl Machine {
     fn new_code(&mut self, code: Code) {
         match code {
             Code::DefNode { init, upd } => {
-                self.exec_insn(&init[0] as *const Insn); // codes for defining node is contained in init
+                let st = Instant::now();
+                let res = self.exec_insn(&init[0] as *const Insn); // codes for defining node is contained in init
+                let ed = Instant::now();
                 self.current_code = upd;
-                self.send_msg("Node was defined successfully".to_string())
+                let msg = if let Ok(Value::Nil) = res {
+                    format!(
+                        "Node was defined successfully [{}us]",
+                        ed.duration_since(st).as_micros()
+                    )
+                } else {
+                    format!("Could not define node")
+                };
+                self.send_msg(msg)
             }
             Code::Exp(exp) => {
-                self.exec_insn(&exp[0] as *const Insn);
+                let st = Instant::now();
+                let res = self.exec_insn(&exp[0] as *const Insn);
+                let ed = Instant::now();
+                let msg = if let Ok(v) = res {
+                    format!("[OK] {:?} ({}us)", v, ed.duration_since(st).as_micros())
+                } else {
+                    format!("[ERROR]")
+                };
+                self.send_msg(msg);
                 // Exit returns value into channel, so doesn't need to send message
             }
         }
