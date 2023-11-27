@@ -1,10 +1,11 @@
 #[derive(Debug, Clone)]
 
 pub enum Insn {
+    None,
     Nil,
     Add,
-    Je(isize),
-    J(isize),
+    Je(i32),
+    J(i32),
     Mul,
     Int(i32),
     Bool(bool),
@@ -12,7 +13,11 @@ pub enum Insn {
     SetLocal(StackOffset),
     Halt, // almost the same as Exit but not returning value
     AllocNode(NodeOffset, Vec<Insn>),
-    ReallocNode,
+    AllocNodeNew(Vec<Insn>),
+    AllocFunc(FuncOffset, Vec<Insn>),
+    AllocFuncNew(Vec<Insn>),
+    AllocData(DataOffset, Vec<Insn>),
+    AllocDataNew(Vec<Insn>),
     Return,
     Call(NArgs),
     UpdateNode(NodeOffset),
@@ -26,3 +31,5 @@ pub enum Insn {
 pub type NArgs = usize;
 pub type NodeOffset = usize;
 pub type StackOffset = usize;
+pub type FuncOffset = usize;
+pub type DataOffset = usize;

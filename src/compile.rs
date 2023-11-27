@@ -2,13 +2,19 @@ use std::collections::{HashMap, VecDeque};
 
 use crate::datastructure::List;
 use crate::insn::*;
-use crate::{ast::*, DEBUG, INITIAL_NODE_SIZE};
-
+use crate::{ast::*, DEBUG, MAX_NUMBER_OF_NODE};
+pub struct RuntimeNodeIndex(usize);
+impl RuntimeNodeIndex {
+    pub fn i(&self) -> usize {
+        self.0
+    }
+}
 #[derive(Debug, Default)]
 struct NodeInfo {
     name: Id,
     pointed: List<usize>, //index
 }
+
 enum SortResult {
     Success(Vec<usize>),
     CicularRef,
@@ -17,7 +23,6 @@ pub struct Compiler {
     codes: Vec<Insn>,
     node_info: Vec<NodeInfo>,
     symbol_table: Vec<Id>,
-    node_capacity: usize,
 }
 
 #[derive(Debug)]
@@ -46,6 +51,9 @@ impl Compiler {
         }
 
         self.register_new_node(prog)?;
+        if self.node_info.len() > MAX_NUMBER_OF_NODE {
+            return Err(CompileErr::TooManyNodes);
+        }
         self.emit_alloc_node(prog)?;
         self.push_insn(Insn::Halt);
         let init = self.insn_popall();
@@ -71,7 +79,19 @@ impl Compiler {
         upd.push(Insn::Halt);
         Ok(CompiledCode::DefNode { init, upd })
     }
-
+    pub fn register_input_output_node(&mut self, name: &str) -> RuntimeNodeIndex {
+        let n = self.node_info.len();
+        self.node_info.push(NodeInfo {
+            name: Id {
+                s: name.to_string(),
+            },
+            pointed: List::new(),
+        });
+        if n + 1 > MAX_NUMBER_OF_NODE {
+            panic!()
+        }
+        RuntimeNodeIndex(n)
+    }
     fn register_new_node<'a>(&mut self, prog: &'a Program) -> CResult<'a, ()> {
         match prog {
             Program::Defs(defs) => {
@@ -87,6 +107,7 @@ impl Compiler {
             Program::Exp(_) => Ok(()),
         }
     }
+
     fn unregister_node(&mut self, _dep: List<usize>) {
         // do nothing
     }
@@ -130,7 +151,6 @@ impl Compiler {
             codes: vec![],
             node_info: vec![],
             symbol_table: vec![],
-            node_capacity: INITIAL_NODE_SIZE,
         }
     }
 
@@ -181,29 +201,19 @@ impl Compiler {
             }
         }
         None
-    }
-    fn contain_node(&self, name: &Id) -> bool {
-        matches!(self.node_offset(name), Some(_))
-    }
+    } /*
+      fn contain_node(&self, name: &Id) -> bool {
+          matches!(self.node_offset(name), Some(_))
+      }*/
     fn emit_alloc_node<'a>(&mut self, prog: &'a Program) -> CResult<'a, ()> {
         match prog {
             Program::Defs(defs) => {
-                if self.node_capacity < defs.len() {
-                    self.node_capacity *= 2;
-                    self.push_insn(Insn::ReallocNode)
-                }
                 for def in defs {
                     self.emit_alloc_node_one(def)?;
                 }
                 Ok(())
             }
-            Program::Def(def) => {
-                if self.node_capacity < self.node_info.len() {
-                    self.node_capacity *= 2;
-                    self.push_insn(Insn::ReallocNode)
-                }
-                self.emit_alloc_node_one(def)
-            }
+            Program::Def(def) => self.emit_alloc_node_one(def),
             Program::Exp(_) => Ok(()),
         }
     }
@@ -229,7 +239,20 @@ impl Compiler {
 impl Exp {
     pub fn emit_code<'a>(&'a self, c: &mut Compiler) -> CResult<'a, ()> {
         match self {
-            Exp::If { .. } => todo!(),
+            Exp::If { cond, then, els } => {
+                cond.emit_code(c)?;
+                let offset = c.codes.len() as i32;
+                c.push_insn(Insn::Placeholder);
+                then.emit_code(c)?;
+                let offset2 = c.codes.len() as i32;
+                c.push_insn(Insn::Placeholder);
+                els.emit_code(c)?;
+                let offset3 = c.codes.len() as i32;
+                // cond JE then J els
+                c.codes[offset as usize] = Insn::Je(offset2 - offset);
+                c.codes[offset2 as usize] = Insn::J(offset3 - offset2);
+                Ok(())
+            }
             Exp::Add(e, t) => {
                 e.emit_code(c)?;
                 t.emit_code(c)?;

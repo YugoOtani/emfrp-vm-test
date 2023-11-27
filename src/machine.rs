@@ -8,7 +8,7 @@ use std::{
 };
 
 use crate::{
-    insn::*, DEBUG, INITIAL_NODE_SIZE, MACHINE_FILE, MACHINE_MEMCHECK_MILLIS, UPD_FREQUENCY_MS,
+    compile::RuntimeNodeIndex, insn::*, DEBUG, MACHINE_FILE, MAX_NUMBER_OF_NODE, UPD_FREQUENCY_MS,
 };
 use std::fmt::Debug;
 use std::fs::OpenOptions;
@@ -23,6 +23,7 @@ pub enum Value {
     Insn(*const Insn),
     Usize(usize),
 }
+unsafe impl Send for Value {}
 #[derive(Debug)]
 pub enum RuntimeErr {
     StackOverflow,
@@ -30,7 +31,6 @@ pub enum RuntimeErr {
 
 #[derive(Debug)]
 pub struct Msg {
-    res_receiver: Receiver<String>,
     code: Arc<Mutex<Option<Code>>>,
     code_is_updated: Arc<Mutex<bool>>,
 }
@@ -40,15 +40,22 @@ pub enum Code {
     DefNode { init: Vec<Insn>, upd: Vec<Insn> },
     Exp(Vec<Insn>),
 }
+#[derive(Debug)]
+enum InputAction {
+    Device(fn() -> Value),
+    Insn(Vec<Insn>),
+    None,
+}
+type OutputAction = Option<fn(&Value)>;
 
-struct Machine {
+pub struct Machine {
     stack: Vec<Value>,
     node_v: Vec<Value>,
     node_v_last: Vec<Value>,
-    node_upd: Vec<Vec<Insn>>,
-    node_callback: Vec<usize>,
+    node_input_action: Vec<InputAction>,
+    node_output_action: Vec<OutputAction>,
     out: Sender<String>,
-    current_code: Vec<Insn>,
+    update: Vec<Insn>,
 }
 impl Debug for Machine {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -56,13 +63,13 @@ impl Debug for Machine {
         for i in 0..self.node_v.len() {
             nd_upd.push_str(&format!(
                 "    {:?} {:?} {:?}\n",
-                self.node_v[i], self.node_v_last[i], self.node_upd[i]
+                self.node_v[i], self.node_v_last[i], self.node_input_action[i]
             ))
         }
         write!(
             f,
             "[Machine State]\n  stack : {:?}\n  node  : \n{}  insn  : {:?}",
-            self.stack, nd_upd, self.current_code
+            self.stack, nd_upd, self.update
         )
     }
 }
@@ -92,9 +99,6 @@ impl Debug for Code {
 }
 
 impl Msg {
-    pub fn get_msg(&self) -> String {
-        self.res_receiver.recv().unwrap()
-    }
     // If send_code returns None, upd = true
     // If upd = true, try_receive_code returns Some(code) and upd turns to false
     // Since upd doesn't turn to false otherwise, when send_code returns None,
@@ -131,42 +135,15 @@ impl Msg {
         }
     }
 }
-pub fn machine_run() -> Msg {
-    let (res_sender, res_receiver) = mpsc::channel();
-    let code = Arc::new(Mutex::new(None));
-    let code_is_updated = Arc::new(Mutex::new(false));
-    let timer = timer();
-    let code_clone = code.clone();
-    let upd_clone = code_is_updated.clone();
-    thread::spawn(move || {
-        let code_mtx = code;
-        let mut machine = Machine::new(res_sender);
-        let code = loop {
-            if let Some(code) = Msg::try_receive_code(&code_mtx, &code_is_updated) {
-                break code;
-            }
-            thread::sleep(Duration::from_millis(MACHINE_MEMCHECK_MILLIS));
-        };
-        machine.new_code(code);
-        loop {
-            if check_if_true(&timer) {
-                if let Err(e) = machine.exec_upd() {
-                    Machine::write_file_append(format!("Update Error : {:?}", e))
-                }
-            }
-
-            if let Some(newcode) = Msg::try_receive_code(&code_mtx, &code_is_updated) {
-                machine.new_code(newcode);
-            }
-        }
-    });
-    Msg {
-        res_receiver,
-        code: code_clone,
-        code_is_updated: upd_clone,
-    }
+pub fn write_file_append(s: String) {
+    OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(MACHINE_FILE)
+        .unwrap()
+        .write_all(s.as_bytes())
+        .unwrap();
 }
-
 fn timer() -> Arc<Mutex<bool>> {
     let timer = Arc::new(Mutex::new(false));
     let clone = timer.clone();
@@ -187,61 +164,92 @@ fn check_if_true(mtx: &Arc<Mutex<bool>>) -> bool {
 }
 
 impl Machine {
-    fn make_new_node(&mut self) {
-        self.node_upd.push(vec![]);
+    pub fn add_input_node(&mut self, ind: RuntimeNodeIndex, f: fn() -> Value) {
+        let i = ind.i();
+        self.node_input_action[i] = InputAction::Device(f);
+        self.update.push(Insn::UpdateNode(i));
+        self.update.push(Insn::SetNode(i));
+    }
+    pub fn add_output_node(&mut self, ind: RuntimeNodeIndex, f: fn(&Value)) {
+        let i = ind.i();
+        self.node_output_action[i] = Some(f);
+        self.update.push(Insn::UpdateNode(i));
+        self.update.push(Insn::SetNode(i));
+    }
+    fn make_empty_node(&mut self) {
         self.node_v.push(Value::Nil);
         self.node_v_last.push(Value::Nil);
-        self.node_callback.push(0)
+        self.node_input_action.push(InputAction::None);
+        self.node_output_action.push(None);
     }
-    fn new(res_sender: Sender<String>) -> Self {
+    pub fn new() -> (Self, Receiver<String>) {
         OpenOptions::new()
             .create(true)
             .write(true)
             .truncate(true)
             .open(MACHINE_FILE)
             .unwrap();
-        let node_callback = Vec::with_capacity(INITIAL_NODE_SIZE);
-        let node_upd = Vec::with_capacity(INITIAL_NODE_SIZE);
-        let node_v = Vec::with_capacity(INITIAL_NODE_SIZE);
-        let node_v_last = Vec::with_capacity(INITIAL_NODE_SIZE);
+        let (sender, receiver) = mpsc::channel();
+        let node_v = Vec::with_capacity(MAX_NUMBER_OF_NODE);
+        let node_v_last = Vec::with_capacity(MAX_NUMBER_OF_NODE);
+        let node_input_action = Vec::with_capacity(MAX_NUMBER_OF_NODE);
+        let node_output_action = Vec::with_capacity(MAX_NUMBER_OF_NODE);
+
         let mut machine = Self {
             stack: vec![],
-            node_callback,
-            node_upd,
             node_v,
             node_v_last,
-            out: res_sender,
-            current_code: vec![Insn::Halt],
+            out: sender,
+            update: vec![],
+            node_input_action,
+            node_output_action,
         };
-        for _ in 0..INITIAL_NODE_SIZE {
-            machine.make_new_node()
+        for _ in 0..MAX_NUMBER_OF_NODE {
+            machine.make_empty_node();
         }
-        machine
-    }
-    fn exec_upd(&mut self) -> Result<(), RuntimeErr> {
-        let st = Instant::now();
-        let code = &self.current_code[0] as *const Insn;
-        let res = self.exec_insn(code);
-        let ed = Instant::now();
 
-        if DEBUG {
-            Self::write_file_append(format!(
-                "update time : {}us\n",
-                ed.duration_since(st).as_micros()
-            ));
+        (machine, receiver)
+    }
+    pub fn run(mut self) -> Msg {
+        let code = Arc::new(Mutex::new(None));
+        let code_is_updated = Arc::new(Mutex::new(false));
+        let timer = timer();
+        let code_clone = code.clone();
+        let upd_clone = code_is_updated.clone();
+        thread::spawn(move || {
+            let code_mtx = code;
+            loop {
+                if check_if_true(&timer) {
+                    if let Err(e) = self.exec_upd() {
+                        write_file_append(format!("Update Error : {:?}", e))
+                    }
+                }
+
+                if let Some(newcode) = Msg::try_receive_code(&code_mtx, &code_is_updated) {
+                    self.new_code(newcode);
+                }
+            }
+        });
+
+        Msg {
+            code: code_clone,
+            code_is_updated: upd_clone,
         }
+    }
+
+    fn exec_upd(&mut self) -> Result<(), RuntimeErr> {
+        self.update.push(Insn::Halt);
+        let code = &self.update[0] as *const Insn;
+        let res = self.exec_insn(code);
+
         res?;
+        let top = self.update.pop();
+        assert!(matches!(top, Some(Insn::Halt)));
+        write_file_append(format!("{:?}\n", self.node_v));
+
         Ok(())
     }
-    fn write_file_append(s: String) {
-        OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(MACHINE_FILE)
-            .unwrap()
-            .write_all(s.as_bytes())
-            .unwrap();
-    }
+
     fn exec_insn(&mut self, insn: *const Insn) -> Result<Value, RuntimeErr> {
         let mut rip = insn;
         let mut rbp = 0;
@@ -262,12 +270,12 @@ impl Machine {
                     Insn::Je(offset) => match self.stack.pop().unwrap() {
                         Value::Bool(b) => {
                             if b {
-                                rip = rip.offset(*offset - 1);
+                                rip = rip.offset(*offset as isize - 1);
                             }
                         }
                         _ => panic!(),
                     },
-                    Insn::J(offset) => rip = rip.offset(*offset - 1),
+                    Insn::J(offset) => rip = rip.offset(*offset as isize - 1),
                     Insn::Mul => {
                         let v1 = self.stack.pop().unwrap();
                         let v2 = self.stack.pop().unwrap();
@@ -299,11 +307,14 @@ impl Machine {
                     Insn::AllocNode(u, insn) => {
                         let v = self.stack.pop().unwrap();
                         self.node_v[*u] = v;
-                        self.node_upd[*u] = insn.clone();
+                        self.node_input_action[*u] = InputAction::Insn(insn.clone());
                     }
                     Insn::GetNode(i) => self.stack.push(self.node_v[*i].clone()),
                     Insn::SetNode(i) => {
                         let v = self.stack.pop().unwrap();
+                        if let Some(f) = self.node_output_action[*i] {
+                            f(&v)
+                        }
                         self.node_v[*i] = v;
                     }
                     Insn::Placeholder => panic!(),
@@ -311,18 +322,18 @@ impl Machine {
                         assert!(self.stack.is_empty());
                         return Ok(Value::Nil);
                     }
-                    Insn::UpdateNode(i) => {
-                        self.stack.push(Value::Usize(rbp));
-                        self.stack.push(Value::Insn(rip));
-                        rip = &self.node_upd[*i][0] as *const Insn;
-                        rip = rip.offset(-1);
-                    }
-                    Insn::ReallocNode => {
-                        let n = self.node_v.len();
-                        for _ in 0..n {
-                            self.make_new_node();
+                    Insn::UpdateNode(i) => match &self.node_input_action[*i] {
+                        InputAction::Device(f) => self.stack.push(f()),
+                        InputAction::Insn(insn) => {
+                            self.stack.push(Value::Usize(rbp));
+                            self.stack.push(Value::Insn(rip));
+                            rip = &insn[0] as *const Insn;
+                            rip = rip.offset(-1);
                         }
-                    }
+                        InputAction::None => {
+                            self.stack.push(Value::Nil);
+                        }
+                    },
                     Insn::Return => {
                         let v = self.stack.pop().unwrap();
                         let old_rip = self.stack.pop().unwrap();
@@ -342,20 +353,12 @@ impl Machine {
                     Insn::Call(_) => todo!(),
                     Insn::SaveLast => std::mem::swap(&mut self.node_v_last, &mut self.node_v),
                     Insn::GetLast(i) => self.stack.push(self.node_v_last[*i].clone()),
+                    Insn::None => todo!(),
                 }
                 rip = rip.offset(1);
-
-                let s = if DEBUG {
-                    format!(
-                        "{:?}\nnode : {:?}   stack : {:?}\n",
-                        rip.as_ref().unwrap(),
-                        self.node_v,
-                        self.stack
-                    )
-                } else {
-                    format!("node : {:?}\n", self.node_v)
-                };
-                Self::write_file_append(s);
+                if DEBUG {
+                    write_file_append(format!("{:?}\n", self));
+                }
 
                 thread::sleep(time::Duration::from_millis(100))
             }
@@ -373,7 +376,7 @@ impl Machine {
                 let st = Instant::now();
                 let res = self.exec_insn(&init[0] as *const Insn); // codes for defining node is contained in init
                 let ed = Instant::now();
-                self.current_code = upd;
+                self.update = upd;
                 let msg = if let Ok(Value::Nil) = res {
                     format!(
                         "Node was defined successfully [{}us]",
