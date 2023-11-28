@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #define MAX_NODE_SIZE 128
-#define DEBUG 1
+#define DEBUG
 typedef unsigned char uint8_t;
 typedef union
 {
@@ -182,11 +182,12 @@ exec_result_t emfrp_exec(uint8_t *p)
             break;
         case BC_AllocNode: // ALLOCNODE offset insnlen insns
             ++p;
+            --rsp;
             tmp_byte = next_byte(&p); // node offset
             tmp_int = next_int(&p);   // insnlen
             tmp_nd = node_b(tmp_byte);
             free(tmp_nd->i_action.insns);
-
+            tmp_nd->v = rsp->num; // 前回の値を引き継ぐかどうか
             tmp_byte_p = (uint8_t *)malloc(tmp_int);
             for (int i = 0; i < tmp_int; ++i)
             {
@@ -197,12 +198,14 @@ exec_result_t emfrp_exec(uint8_t *p)
             break;
         case BC_AllocNodeNew:
             ++p;
+            --rsp;
             tmp_int = next_int(&p); //
             tmp_nd = (node_t *)malloc(sizeof(node_t));
             tmp_nd->i_action.insns = (uint8_t *)malloc(sizeof(tmp_int));
             tmp_nd->i_action.kind = INSN;
             tmp_nd->o_action = NULL;
             tmp_nd->next = NULL;
+            tmp_nd->v = rsp->num;
             tmp_byte_p = (uint8_t *)malloc(tmp_int);
             for (int i = 0; i < tmp_int; ++i)
             {
@@ -251,10 +254,10 @@ exec_result_t emfrp_exec(uint8_t *p)
             }
             break;
         case BC_SetNode:
+            --rsp;
             ++p;
             tmp_byte = next_byte(&p);
             node_b(tmp_byte)->v = rsp->num;
-            --rsp;
             break;
         case BC_GetNode:
             ++p;
@@ -278,8 +281,9 @@ exec_result_t emfrp_exec(uint8_t *p)
         case BC_Return: // rbp rip ret_val rsp
             rsp -= 2;
             rbp->ptr = (value_t *)(rsp - 1)->ptr;
-            p = (uint8_t *)rsp->ptr + 1;
+            p = (uint8_t *)rsp->ptr;
             *(rsp - 1) = *(rsp + 1);
+
             break;
         case BC_Halt:
             if (rsp == &stack[0])
@@ -334,21 +338,22 @@ void emfrp_set_new_code(uint8_t *code)
 }
 int main(void)
 {
-    uint8_t code[] = {20, 0, 0, 0, 5, 0, 0, 0, 2, 0, 0, 0, 0, 13, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 23, 26, 14, 0, 16, 0, 26};
+    uint8_t code[] = {28, 0, 0, 0, 6, 0, 0, 0, 2, 0, 0, 0, 0, 13, 17, 0, 0, 0, 15, 0, 6, 7, 2, 1, 0, 0, 0, 8, 5, 2, 0, 0, 0, 0, 23, 26, 18, 14, 0, 16, 0, 26};
     emfrp_set_new_code(code);
     for (int i = 0; i < 10; i++)
     {
         if (emfrp_exec(update) == OK)
+        {
+#ifdef DEBUG
+            printf("\n\n");
+            print_node("node info");
+#endif
             continue;
+        }
         else
         {
             printf("ABORT\n");
             return 1;
         }
-
-#ifdef DEBUG
-        printf("\n\n");
-        print_node("node info");
-#endif
     }
 }

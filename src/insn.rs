@@ -104,12 +104,12 @@ impl Insn {
                     insn.push_byte_code(ret);
                 }
                 let code_len = ret.len() - (offset + 4);
-                for (i, v) in code_len.to_le_bytes().iter().enumerate() {
+                for (i, v) in (code_len as i32).to_le_bytes().iter().enumerate() {
                     ret[offset + i] = *v;
                 }
             }
             Insn::AllocNode(i, insns) | Insn::AllocFunc(i, insns) | Insn::AllocData(i, insns) => {
-                ret.push(i.to_le_bytes()[0]);
+                ret.push((i as i32).to_le_bytes()[0]);
                 let offset = ret.len();
                 for _ in 0..4 {
                     ret.push(0);
@@ -118,7 +118,7 @@ impl Insn {
                     insn.push_byte_code(ret);
                 }
                 let code_len = ret.len() - (offset + 4);
-                for (i, v) in code_len.to_le_bytes().iter().enumerate() {
+                for (i, v) in (code_len as i32).to_le_bytes().iter().enumerate() {
                     ret[offset + i] = *v;
                 }
             }
@@ -146,10 +146,10 @@ fn push_int_le(i: i32, ret: &mut Vec<u8>) {
         ret.push(b)
     }
 }
-pub fn bytecode_len(st: usize, ed: usize, v: &Vec<Insn>) -> usize {
+pub fn bytecode_len(v: &[Insn]) -> usize {
     let mut ret = 0;
-    for i in st..ed {
-        ret += match &v[i] {
+    for insn in v {
+        ret += match &insn {
             // no immediate value
             Insn::None
             | Insn::Nil
@@ -175,10 +175,10 @@ pub fn bytecode_len(st: usize, ed: usize, v: &Vec<Insn>) -> usize {
 
             Insn::Bool(_) => 2,
             Insn::AllocDataNew(insns) | Insn::AllocFuncNew(insns) | Insn::AllocNodeNew(insns) => {
-                1 + bytecode_len(0, insns.len(), &insns)
+                1 + bytecode_len(&insns[..])
             }
             Insn::AllocNode(_, insns) | Insn::AllocFunc(_, insns) | Insn::AllocData(_, insns) => {
-                2 + bytecode_len(0, insns.len(), &insns)
+                2 + bytecode_len(&insns[..])
             }
         }
     }
@@ -188,5 +188,5 @@ pub fn bytecode_len(st: usize, ed: usize, v: &Vec<Insn>) -> usize {
 fn insn_8_32() {
     assert_eq!(Insn::j(1000), Insn::J32(1000));
     assert_eq!(Insn::j(100), Insn::J8(100));
-    assert_eq!(12, 12usize.to_le_bytes()[0]);
+    assert_eq!(12, 12i32.to_le_bytes()[0]);
 }

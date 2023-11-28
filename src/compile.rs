@@ -72,7 +72,7 @@ impl Compiler {
         }
 
         let mut upd = Vec::with_capacity(2 * sorted_nodes.len() + 2);
-
+        upd.push(Insn::SaveLast);
         for id in sorted_nodes {
             upd.push(Insn::UpdateNode(id));
             upd.push(Insn::SetNode(id));
@@ -252,17 +252,17 @@ impl Exp {
         match self {
             Exp::If { cond, then, els } => {
                 cond.emit_code(c)?;
-                let offset = c.codes.len();
                 c.push_insn(Insn::Placeholder);
-                then.emit_code(c)?;
-                let offset2 = c.codes.len();
-                c.push_insn(Insn::Placeholder);
+                let i0 = c.codes.len();
                 els.emit_code(c)?;
-                let offset3 = c.codes.len();
-                // cond JE then J els
-                c.codes[offset as usize] = Insn::je(bytecode_len(offset, offset2, &c.codes) as i32);
-                c.codes[offset2 as usize] =
-                    Insn::j(bytecode_len(offset2, offset3, &c.codes) as i32);
+                c.push_insn(Insn::Placeholder);
+                let i1 = c.codes.len();
+                then.emit_code(c)?;
+                let i2 = c.codes.len();
+                c.codes[i1 as usize - 1] = Insn::j(bytecode_len(&c.codes[i1..i2]) as i32);
+
+                c.codes[i0 as usize - 1] = Insn::je(bytecode_len(&c.codes[i0..i1]) as i32);
+
                 Ok(())
             }
             Exp::Add(e, t) => {
