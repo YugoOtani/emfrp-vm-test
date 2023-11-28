@@ -12,6 +12,7 @@ impl RuntimeNodeIndex {
 #[derive(Debug, Default)]
 struct NodeInfo {
     name: Id,
+    is_new_name: bool,
     pointed: List<usize>, //index
 }
 
@@ -70,8 +71,8 @@ impl Compiler {
             println!("")
         }
 
-        let mut upd = Vec::with_capacity(sorted_nodes.len() + 2);
-        upd.push(Insn::SaveLast);
+        let mut upd = Vec::with_capacity(2 * sorted_nodes.len() + 2);
+
         for id in sorted_nodes {
             upd.push(Insn::UpdateNode(id));
             upd.push(Insn::SetNode(id));
@@ -79,19 +80,7 @@ impl Compiler {
         upd.push(Insn::Halt);
         Ok(CompiledCode::DefNode { init, upd })
     }
-    pub fn register_input_output_node(&mut self, name: &str) -> RuntimeNodeIndex {
-        let n = self.node_info.len();
-        self.node_info.push(NodeInfo {
-            name: Id {
-                s: name.to_string(),
-            },
-            pointed: List::new(),
-        });
-        if n + 1 > MAX_NUMBER_OF_NODE {
-            panic!()
-        }
-        RuntimeNodeIndex(n)
-    }
+
     fn register_new_node<'a>(&mut self, prog: &'a Program) -> CResult<'a, ()> {
         match prog {
             Program::Defs(defs) => {
@@ -127,6 +116,7 @@ impl Compiler {
                     val.to_dependency(&mut pointed, self);
                     self.node_info.push(NodeInfo {
                         name: name.clone(),
+                        is_new_name: true,
                         pointed,
                     });
                     Ok(())
@@ -162,7 +152,15 @@ impl Compiler {
         let mut q = VecDeque::new();
         let mut cnt = HashMap::new();
         let mut ret = vec![];
-        for (i, NodeInfo { name, pointed }) in self.node_info.iter().enumerate() {
+        for (
+            i,
+            NodeInfo {
+                name,
+                pointed,
+                is_new_name: _,
+            },
+        ) in self.node_info.iter().enumerate()
+        {
             if DEBUG {
                 assert_eq!(self.node_offset(name), Some(i));
             }
@@ -177,7 +175,15 @@ impl Compiler {
 
         while let Some(nd) = q.pop_front() {
             // ndがさすノードのカウントを減らす
-            for (i, NodeInfo { name: _, pointed }) in self.node_info.iter().enumerate() {
+            for (
+                i,
+                NodeInfo {
+                    name: _,
+                    pointed,
+                    is_new_name: _,
+                },
+            ) in self.node_info.iter().enumerate()
+            {
                 if pointed.contains(&nd) {
                     *cnt.get_mut(&i).unwrap() -= 1;
                     if *cnt.get(&i).unwrap() == 0 {
@@ -227,7 +233,12 @@ impl Compiler {
                 let mut insn = self.compile_exp(val)?;
                 insn.push(Insn::Return);
                 let offset = self.node_offset(name).unwrap();
-                self.push_insn(Insn::AllocNode(offset, insn));
+                let insn = if self.node_info[offset].is_new_name {
+                    Insn::AllocNodeNew(insn)
+                } else {
+                    Insn::AllocNode(offset, insn)
+                };
+                self.push_insn(insn);
                 Ok(())
             }
             Def::Data { .. } => Ok(()),
@@ -241,16 +252,17 @@ impl Exp {
         match self {
             Exp::If { cond, then, els } => {
                 cond.emit_code(c)?;
-                let offset = c.codes.len() as i32;
+                let offset = c.codes.len();
                 c.push_insn(Insn::Placeholder);
                 then.emit_code(c)?;
-                let offset2 = c.codes.len() as i32;
+                let offset2 = c.codes.len();
                 c.push_insn(Insn::Placeholder);
                 els.emit_code(c)?;
-                let offset3 = c.codes.len() as i32;
+                let offset3 = c.codes.len();
                 // cond JE then J els
-                c.codes[offset as usize] = Insn::Je(offset2 - offset);
-                c.codes[offset2 as usize] = Insn::J(offset3 - offset2);
+                c.codes[offset as usize] = Insn::je(bytecode_len(offset, offset2, &c.codes) as i32);
+                c.codes[offset2 as usize] =
+                    Insn::j(bytecode_len(offset2, offset3, &c.codes) as i32);
                 Ok(())
             }
             Exp::Add(e, t) => {
